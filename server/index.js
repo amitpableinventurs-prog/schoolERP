@@ -1,0 +1,98 @@
+import path from 'node:path'
+import express from 'express'
+import helmet from 'helmet'
+import cookieParser from 'cookie-parser'
+import compression from 'compression'
+import { config } from './config.js'
+import { initDatabase } from './db.js'
+import { requireAuth } from './auth.js'
+import { startScheduler } from './automation.js'
+import { aiEnabled } from './ai.js'
+import coreRoutes from './routes/core.js'
+import academicRoutes from './routes/academics.js'
+import officeRoutes from './routes/office.js'
+import portalRoutes from './routes/portal.js'
+import parentRoutes from './routes/parent.js'
+import lmsRoutes from './routes/lms.js'
+import superadminRoutes from './routes/superadmin.js'
+import transportRoutes from './routes/transport.js'
+import payrollRoutes from './routes/payroll.js'
+import financeRoutes from './routes/finance.js'
+import certificateRoutes, { verifyCertificate } from './routes/certificates.js'
+import { activityLogger } from './activity.js'
+
+const app = express()
+
+// Only trust X-Forwarded-For from a proxy on this machine (Vite in dev, nginx/Apache in production).
+app.set('trust proxy', 'loopback')
+app.disable('x-powered-by')
+app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }))
+app.use(compression())
+app.use(express.json({ limit: '2mb' }))
+app.use(cookieParser())
+app.use('/api', activityLogger)
+
+// Public certificate check (no login), lightly rate-limited against serial guessing.
+const verifyHits = new Map()
+app.get('/api/verify/:serial', (req, res, next) => {
+  const now = Date.now()
+  const hit = verifyHits.get(req.ip)
+  const entry = hit && hit.until > now ? hit : { count: 0, until: now + 10 * 60_000 }
+  entry.count++
+  verifyHits.set(req.ip, entry)
+  if (verifyHits.size > 5000) verifyHits.clear()
+  if (entry.count > 30) return res.status(429).json({ error: 'Too many checks. Please try again in a few minutes.' })
+  next()
+}, verifyCertificate)
+
+app.use('/api', coreRoutes)
+app.use('/api/portal', requireAuth, portalRoutes)
+app.use('/api/parent', requireAuth, parentRoutes)
+app.use('/api', requireAuth, academicRoutes)
+app.use('/api', requireAuth, officeRoutes)
+app.use('/api', requireAuth, lmsRoutes)
+app.use('/api', requireAuth, superadminRoutes)
+app.use('/api', requireAuth, transportRoutes)
+app.use('/api', requireAuth, payrollRoutes)
+app.use('/api', requireAuth, financeRoutes)
+app.use('/api', requireAuth, certificateRoutes)
+app.use('/api', (req, res) => res.status(404).json({ error: 'Not found.' }))
+
+// In production this server also serves the built React app.
+if (config.isProduction) {
+  app.use('/assets', express.static(path.join(config.paths.dist, 'assets'), { maxAge: '1y', immutable: true }))
+  app.use(express.static(config.paths.dist, { index: false, maxAge: '1h' }))
+  app.get(/.*/, (req, res) => res.sendFile(path.join(config.paths.dist, 'index.html')))
+}
+
+// eslint-disable-next-line no-unused-vars
+app.use((error, req, res, next) => {
+  if (error.name === 'ValidationError') {
+    return res.status(422).json({ error: Object.values(error.errors).map((e) => e.message).join(' ') })
+  }
+  if (error.name === 'CastError') return res.status(400).json({ error: `Invalid value for ${error.path}.` })
+  if (error.code === 11000) {
+    const field = Object.keys(error.keyPattern || {})[0] || 'value'
+    return res.status(409).json({ error: `That ${field} is already in use.` })
+  }
+  if (error.status && error.status < 500) return res.status(error.status).json({ error: error.message })
+  if (error.type === 'entity.parse.failed') return res.status(400).json({ error: 'Invalid request.' })
+  if (error.status) return res.status(error.status).json({ error: error.message })
+  console.error(error)
+  res.status(500).json({ error: 'Something went wrong on our side. Please try again.' })
+})
+
+try {
+  await initDatabase()
+} catch (error) {
+  console.error(`[db] Could not start with MongoDB at ${config.mongoUri} - is MongoDB running?`)
+  console.error(`     ${error.message}`)
+  process.exit(1)
+}
+
+startScheduler()
+
+app.listen(config.port, () => {
+  console.log(`[server] API ready on http://localhost:${config.port} (${config.isProduction ? 'production' : 'development'})`)
+  console.log(aiEnabled ? `[ai] AI enabled: ${config.ai.provider} (${config.ai.model}${config.ai.fallbackModel ? `, fallback ${config.ai.fallbackModel}` : ''})` : `[ai] ${config.ai.keyVar} not set - AI features are disabled, everything else works.`)
+})

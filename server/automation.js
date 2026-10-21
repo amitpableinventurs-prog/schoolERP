@@ -275,8 +275,9 @@ export async function runDueRules() {
   }
 }
 
-export function startScheduler() {
-  const tick = () => runDueRules().catch((error) => console.error('[automation]', error.message))
+// `eachTenant(fn)` runs fn once per institute on the central server.
+export function startScheduler(eachTenant = (fn) => fn()) {
+  const tick = () => eachTenant(runDueRules).catch((error) => console.error('[automation]', error.message))
   setTimeout(tick, 10_000)
   setInterval(tick, config.automationTickMinutes * 60_000)
 }

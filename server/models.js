@@ -1,6 +1,41 @@
 import mongoose from 'mongoose'
+import { defineModel, modelOf } from './tenancy.js'
 
-const { Schema, model } = mongoose
+const { Schema } = mongoose
+
+// Desktop sync: deletes of synced records are remembered as tombstones so the other
+// side (central server / desktop app) can replay them.
+const NOT_TRACKED = ['ActivityLog', 'AutomationRule', 'Outbox', 'AutomationLog', 'SyncTombstone', 'SyncState']
+
+async function recordDeletes(Model, ids) {
+  if (!ids?.length) return
+  const deletedAt = new Date()
+  await modelOf('SyncTombstone', Model.db).bulkWrite(ids.map((docId) => ({
+    updateOne: { filter: { model: Model.modelName, docId }, update: { $set: { deletedAt } }, upsert: true },
+  })))
+}
+
+function trackDeletes(schema) {
+  schema.pre('deleteMany', async function () {
+    this._deletedIds = await this.model.distinct('_id', this.getFilter())
+  })
+  schema.pre('deleteOne', { query: true, document: false }, async function () {
+    const doc = await this.model.findOne(this.getFilter(), '_id').lean()
+    this._deletedIds = doc ? [doc._id] : []
+  })
+  schema.post(['deleteMany', 'deleteOne'], { query: true, document: false }, async function () {
+    await recordDeletes(this.model, this._deletedIds)
+  })
+  schema.post('findOneAndDelete', async function (doc) {
+    if (doc) await recordDeletes(this.model, [doc._id])
+  })
+  schema.post('deleteOne', { document: true, query: false }, async function () {
+    await recordDeletes(this.constructor, [this._id])
+  })
+}
+
+// Models resolve to the database of the current tenant (see tenancy.js).
+const model = (name, schema) => defineModel(name, NOT_TRACKED.includes(name) ? schema : schema.plugin(trackDeletes))
 const ref = (name) => ({ type: Schema.Types.ObjectId, ref: name })
 const opts = { timestamps: true }
 
@@ -585,3 +620,21 @@ export const FinanceEntry = model('FinanceEntry', new Schema({
   createdBy: ref('User'),
   createdByName: String,
 }, opts).index({ date: -1 }).index({ type: 1, category: 1 }))
+
+/* ── Desktop sync ── */
+
+export const SyncTombstone = model('SyncTombstone', new Schema({
+  model: { type: String, required: true },
+  docId: { type: Schema.Types.ObjectId, required: true },
+  deletedAt: { type: Date, required: true },
+}).index({ model: 1, docId: 1 }, { unique: true }).index({ deletedAt: 1, _id: 1 }))
+
+// Desktop app only: one document holding the sync cursors and status.
+export const SyncState = model('SyncState', new Schema({
+  key: { type: String, default: 'state', unique: true },
+  cursors: { type: Schema.Types.Mixed, default: {} }, // per collection: { t, id } of the last pulled change
+  pushedAt: Date, // local changes after this are sent on the next push
+  initialized: { type: Boolean, default: false }, // first full download finished
+  lastSyncAt: Date,
+  conflicts: { type: [Schema.Types.Mixed], default: [] },
+}, { minimize: false }))

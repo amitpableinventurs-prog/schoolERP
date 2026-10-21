@@ -1,0 +1,15 @@
+{
+  "name": "smart-campus-desktop-build",
+  "private": true,
+  "description": "Build tools for the Smart Campus ERP Windows app (the app itself is assembled in .stage)",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "stage": "node build.mjs --stage-only",
+    "dev": "electron .stage"
+  },
+  "devDependencies": {
+    "electron": "^44.9.0",
+    "electron-builder": "^26.15.3"
+  }
+}

@@ -2,31 +2,32 @@ import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
   Award, Bell, BookOpen, Bot, Brain, Bus, CalendarDays, CalendarX2, ChevronDown, ChevronLeft, ClipboardCheck, ClipboardList, Gauge,
-  GraduationCap, IndianRupee, KeyRound, LayoutDashboard, LayoutGrid, LogOut, Menu, MonitorPlay, Moon, Plus, Search, Sun, Timer, Users2,
+  Cloud, CloudOff, GraduationCap, IndianRupee, KeyRound, RefreshCw, LayoutDashboard, LayoutGrid, LogOut, Menu, MonitorPlay, Moon, Plus, Search, Sun, Timer, Users2,
 } from 'lucide-react'
 import { can, useAuth, WING_LABEL } from '../lib/auth.jsx'
 import { api } from '../lib/api.js'
-import { initials } from '../lib/format.js'
+import { initials, timeAgo } from '../lib/format.js'
 import { flatLinks, menuFor, QUICK_ADD } from '../lib/modules.js'
 import { PORTALS, portalOfRole } from '../lib/portals.js'
+import { hasModule } from '../../shared/modules.js'
 import { Field, Loading, Modal, useAction, useApi } from './ui.jsx'
 
 const PORTAL_MENU = [
   { title: 'My Campus', items: [
     { to: '/', label: 'Home', icon: LayoutDashboard, end: true },
-    { to: '/my/attendance', label: 'Attendance', icon: ClipboardCheck },
-    { to: '/my/timetable', label: 'Timetable', icon: CalendarDays },
-    { to: '/my/results', label: 'Results', icon: GraduationCap },
-    { to: '/my/tests', label: 'Online Tests', icon: Timer },
-    { to: '/my/courses', label: 'Courses', icon: MonitorPlay },
-    { to: '/my/assignments', label: 'Assignments', icon: ClipboardList },
-    { to: '/my/materials', label: 'Study Material', icon: BookOpen },
-    { to: '/my/doubts', label: 'AI Tutor & Doubts', icon: Brain, ai: true },
-    { to: '/my/fees', label: 'Fees', icon: IndianRupee },
+    { to: '/my/attendance', label: 'Attendance', icon: ClipboardCheck, mod: 'academics' },
+    { to: '/my/timetable', label: 'Timetable', icon: CalendarDays, mod: 'academics' },
+    { to: '/my/results', label: 'Results', icon: GraduationCap, mod: 'academics' },
+    { to: '/my/tests', label: 'Online Tests', icon: Timer, mod: 'onlineExams' },
+    { to: '/my/courses', label: 'Courses', icon: MonitorPlay, mod: 'lms' },
+    { to: '/my/assignments', label: 'Assignments', icon: ClipboardList, mod: 'lms' },
+    { to: '/my/materials', label: 'Study Material', icon: BookOpen, mod: 'academics' },
+    { to: '/my/doubts', label: 'AI Tutor & Doubts', icon: Brain, ai: true, mod: 'academics' },
+    { to: '/my/fees', label: 'Fees', icon: IndianRupee, mod: 'fees' },
     { to: '/my/notices', label: 'Notices', icon: Bell },
-    { to: '/my/leaves', label: 'Leave', icon: CalendarX2 },
-    { to: '/my/transport', label: 'Transport', icon: Bus },
-    { to: '/my/certificates', label: 'Certificates', icon: Award },
+    { to: '/my/leaves', label: 'Leave', icon: CalendarX2, mod: 'academics' },
+    { to: '/my/transport', label: 'Transport', icon: Bus, mod: 'transport' },
+    { to: '/my/certificates', label: 'Certificates', icon: Award, mod: 'certificates' },
   ] },
 ]
 
@@ -39,18 +40,18 @@ function parentMenu(user, childId) {
   const base = `/child/${child._id}`
   sections.push({ title: child.name.split(' ')[0], items: [
     { to: base, label: 'Overview', icon: LayoutDashboard, end: true },
-    { to: `${base}/attendance`, label: 'Attendance', icon: ClipboardCheck },
-    { to: `${base}/timetable`, label: 'Timetable', icon: CalendarDays },
-    { to: `${base}/results`, label: 'Results', icon: GraduationCap },
-    { to: `${base}/tests`, label: 'Online Tests', icon: Timer },
-    { to: `${base}/courses`, label: 'Courses', icon: MonitorPlay },
-    { to: `${base}/assignments`, label: 'Homework', icon: ClipboardList },
-    { to: `${base}/materials`, label: 'Study Material', icon: BookOpen },
-    { to: `${base}/fees`, label: 'Fees', icon: IndianRupee },
+    { to: `${base}/attendance`, label: 'Attendance', icon: ClipboardCheck, mod: 'academics' },
+    { to: `${base}/timetable`, label: 'Timetable', icon: CalendarDays, mod: 'academics' },
+    { to: `${base}/results`, label: 'Results', icon: GraduationCap, mod: 'academics' },
+    { to: `${base}/tests`, label: 'Online Tests', icon: Timer, mod: 'onlineExams' },
+    { to: `${base}/courses`, label: 'Courses', icon: MonitorPlay, mod: 'lms' },
+    { to: `${base}/assignments`, label: 'Homework', icon: ClipboardList, mod: 'lms' },
+    { to: `${base}/materials`, label: 'Study Material', icon: BookOpen, mod: 'academics' },
+    { to: `${base}/fees`, label: 'Fees', icon: IndianRupee, mod: 'fees' },
     { to: `${base}/notices`, label: 'Notices', icon: Bell },
-    { to: `${base}/leaves`, label: 'Leave', icon: CalendarX2 },
-    { to: `${base}/transport`, label: 'Transport', icon: Bus },
-    { to: `${base}/certificates`, label: 'Certificates', icon: Award },
+    { to: `${base}/leaves`, label: 'Leave', icon: CalendarX2, mod: 'academics' },
+    { to: `${base}/transport`, label: 'Transport', icon: Bus, mod: 'transport' },
+    { to: `${base}/certificates`, label: 'Certificates', icon: Award, mod: 'certificates' },
   ] })
   return sections
 }
@@ -110,6 +111,48 @@ function Dropdown({ button, children, width }) {
       {button(() => setOpen((o) => !o), open)}
       {open && <div className="dd-menu" style={width ? { width } : undefined}>{children(() => setOpen(false))}</div>}
     </div>
+  )
+}
+
+// Desktop app only: online/offline state of the sync with the central server.
+function SyncBadge() {
+  const [status, setStatus] = useState(null)
+  const [run, busy] = useAction()
+  useEffect(() => {
+    let alive = true
+    const load = () => api.get('/desktop/status').then((s) => alive && setStatus(s)).catch(() => {})
+    load()
+    const timer = setInterval(load, 15_000)
+    return () => { alive = false; clearInterval(timer) }
+  }, [])
+  if (!status) return null
+  const offline = !status.online
+  const syncNow = () => run(async () => setStatus(await api.post('/desktop/sync')))
+  return (
+    <Dropdown width={320} button={(toggle, open) => (
+      <button className={`badge ${status.locked ? 'badge-bad' : offline ? 'badge-warn' : 'badge-good'}`} style={{ cursor: 'pointer', border: 0 }} onClick={toggle} aria-expanded={open}
+        title={offline ? 'Working offline - changes are saved on this computer' : 'Synced with the server'}>
+        {offline ? <CloudOff size={13} /> : <Cloud size={13} />}
+        <span className="hide-sm">{status.syncing ? 'Syncing…' : offline ? 'Offline' : 'Online'}</span>
+      </button>
+    )}>
+      {() => (
+        <div style={{ padding: '10px 14px' }} className="stack">
+          <div className="dd-head" style={{ padding: 0 }}>{status.license?.institute} · {status.license?.label} ({status.license?.deviceCode})</div>
+          {status.locked && <div className="alert alert-error small">{status.locked}</div>}
+          <div className="small">Last sync: <strong>{status.lastSyncAt ? timeAgo(status.lastSyncAt) : 'never'}</strong></div>
+          {status.lastError && <div className="small muted">{status.lastError}</div>}
+          {status.license?.validUntil && <div className="small muted">Works offline until {new Date(status.license.validUntil).toLocaleDateString('en-IN')}</div>}
+          {status.conflicts?.length > 0 && (
+            <details className="small">
+              <summary>{status.conflicts.length} record{status.conflicts.length === 1 ? '' : 's'} could not sync</summary>
+              {status.conflicts.slice(0, 10).map((c, i) => <div key={i} className="muted">{c.model}: {c.reason}</div>)}
+            </details>
+          )}
+          <button className="btn btn-sm" onClick={syncNow} disabled={busy || status.syncing}><RefreshCw size={14} /> Sync now</button>
+        </div>
+      )}
+    </Dropdown>
   )
 }
 
@@ -203,7 +246,7 @@ function SideGroup({ group, counts, onNavigate }) {
 const ROLE_LABEL = { superadmin: 'Super Admin', admin: 'Wing Admin', teacher: 'Teacher', accountant: 'Accountant', counsellor: 'Counsellor', student: 'Student', parent: 'Parent' }
 
 export default function Layout() {
-  const { user, institute, logout } = useAuth()
+  const { user, institute, logout, desktop } = useAuth()
   const navigate = useNavigate()
   const [open, setOpen] = useState(false)
   const [collapsed, setCollapsed] = useStored('sidebar-collapsed', '')
@@ -223,7 +266,12 @@ export default function Layout() {
     return () => window.removeEventListener('leaves-changed', reloadLeaves)
   }, [reloadLeaves])
 
-  const menu = useMemo(() => (user.role === 'student' ? PORTAL_MENU : user.role === 'parent' ? parentMenu(user, childId) : menuFor(user)), [user, childId])
+  const menu = useMemo(() => {
+    if (user.role !== 'student' && user.role !== 'parent') return menuFor(user)
+    // Student / parent pages of modules the institute does not have are hidden.
+    const base = user.role === 'student' ? PORTAL_MENU : parentMenu(user, childId)
+    return base.map((s) => ({ ...s, items: s.items.filter((i) => hasModule(user.modules, i.mod)) }))
+  }, [user, childId])
   const links = useMemo(() => flatLinks(menu), [menu])
   const matches = menuQ.trim() ? links.filter((l) => l.label.toLowerCase().includes(menuQ.trim().toLowerCase())) : null
   const quick = QUICK_ADD.filter((q) => can(user, q.section))
@@ -319,6 +367,7 @@ export default function Layout() {
               )}
             </Dropdown>
           )}
+          {desktop && <SyncBadge />}
           <button className="btn btn-ghost btn-icon" onClick={toggleTheme} aria-label="Toggle dark mode" title="Toggle dark mode">{isDark ? <Sun size={19} /> : <Moon size={19} />}</button>
           {isStaff && <Link className="btn btn-ghost btn-icon hide-sm" to="/#hub" aria-label="All modules" title="All modules"><LayoutGrid size={19} /></Link>}
           <Dropdown button={(toggle, open) => (

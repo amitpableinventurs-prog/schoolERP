@@ -82,6 +82,7 @@ const Portal = {
   Certificate: page(() => import('./pages/portal/MyCertificates.jsx').then((m) => ({ default: m.MyCertificate }))),
 }
 const Verify = page(() => import('./pages/Verify.jsx'))
+const OwnerApp = page(() => import('./pages/owner/Owner.jsx'))
 const Parent = {
   Home: page(() => import('./pages/parent/ParentHome.jsx')),
   Child: page(() => import('./pages/parent/ChildOverview.jsx')),
@@ -245,6 +246,14 @@ export default function App() {
     return (
       <Suspense fallback={<Loading />}>
         <Routes><Route path="/verify/:serial?" element={<Verify />} /></Routes>
+      </Suspense>
+    )
+  }
+  // The provider's owner console has its own login, separate from institute users.
+  if (pathname === '/owner' || pathname.startsWith('/owner/')) {
+    return (
+      <Suspense fallback={<Loading />}>
+        <Routes><Route path="/owner/*" element={<OwnerApp />} /></Routes>
       </Suspense>
     )
   }

@@ -1,0 +1,25 @@
+# Caddy (https://caddyserver.com) in front of the central server.
+# Replace myerp.in with your PLATFORM_DOMAIN and set an email for Let's Encrypt.
+{
+	email you@myerp.in
+	# Certificates for client domains are only issued for domains added in the owner console.
+	on_demand_tls {
+		ask http://127.0.0.1:5188/api/platform/tls-check
+	}
+}
+
+# Your own domain: owner console + main institute; <code>.myerp.in for each client.
+app.myerp.in, myerp.in, *.myerp.in {
+	tls {
+		on_demand
+	}
+	reverse_proxy 127.0.0.1:5188
+}
+
+# Any other domain = a client's custom domain (erp.clientschool.com).
+https:// {
+	tls {
+		on_demand
+	}
+	reverse_proxy 127.0.0.1:5188
+}

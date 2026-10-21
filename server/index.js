@@ -4,8 +4,8 @@ import helmet from 'helmet'
 import cookieParser from 'cookie-parser'
 import compression from 'compression'
 import { config } from './config.js'
-import { initDatabase } from './db.js'
-import { requireAuth } from './auth.js'
+import { connectDatabase, initTenant } from './db.js'
+import { moduleGate, requireAuth } from './auth.js'
 import { startScheduler } from './automation.js'
 import { aiEnabled } from './ai.js'
 import coreRoutes from './routes/core.js'
@@ -20,7 +20,17 @@ import payrollRoutes from './routes/payroll.js'
 import financeRoutes from './routes/finance.js'
 import certificateRoutes, { verifyCertificate } from './routes/certificates.js'
 import { activityLogger } from './activity.js'
+import { ensureIndexes, runWithTenant } from './tenancy.js'
+import { loadSigningKeys } from './license.js'
+import platformRoutes from './platform/routes.js'
+import { resolveTenant } from './platform/resolve.js'
+import { ensureMainTenant, Tenant, tenantBlock, tenantCtx } from './platform/store.js'
+import syncRoutes from './sync/central.js'
+import { desktopGuard, desktopRoutes, loadLicense } from './desktop.js'
+import { startSyncClient } from './sync/client.js'
+import { hasModule } from '../shared/modules.js'
 
+const desktop = config.mode === 'desktop'
 const app = express()
 
 // Only trust X-Forwarded-For from a proxy on this machine (Vite in dev, nginx/Apache in production).
@@ -28,8 +38,18 @@ app.set('trust proxy', 'loopback')
 app.disable('x-powered-by')
 app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }))
 app.use(compression())
+// Desktop apps sync through here (own body parser; the licence picks the institute).
+if (!desktop) app.use('/api/sync', syncRoutes)
 app.use(express.json({ limit: '2mb' }))
 app.use(cookieParser())
+if (desktop) {
+  app.use('/api/desktop', desktopRoutes)
+  app.use('/api', desktopGuard)
+} else {
+  app.use('/api/platform', platformRoutes)
+  app.use('/api', resolveTenant)
+}
+app.use('/api', moduleGate)
 app.use('/api', activityLogger)
 
 // Public certificate check (no login), lightly rate-limited against serial guessing.
@@ -82,17 +102,39 @@ app.use((error, req, res, next) => {
   res.status(500).json({ error: 'Something went wrong on our side. Please try again.' })
 })
 
+// Runs fn once per active institute (central server).
+async function eachTenant(fn, module) {
+  for (const tenant of await Tenant.find({ status: 'active' }).lean()) {
+    if (tenantBlock(tenant) || !hasModule(tenant.modules, module)) continue
+    await runWithTenant(tenantCtx(tenant), fn).catch((error) => console.error(`[${tenant.code}]`, error.message))
+  }
+}
+
 try {
-  await initDatabase()
+  await connectDatabase()
+  if (desktop) {
+    loadLicense()
+    await ensureIndexes()
+  } else {
+    loadSigningKeys()
+    // The database in MONGODB_URI is the "main" institute; the others come from the owner console.
+    const main = await ensureMainTenant()
+    await initTenant(main, { admin: config.auth.initialAdmin, demo: process.env.SEED_DEMO !== 'false' })
+    for (const tenant of await Tenant.find({ isMain: { $ne: true }, status: 'active' }).lean()) await initTenant(tenant)
+  }
 } catch (error) {
   console.error(`[db] Could not start with MongoDB at ${config.mongoUri} - is MongoDB running?`)
   console.error(`     ${error.message}`)
   process.exit(1)
 }
 
-startScheduler()
+// Automation runs on the central server only, so messages are never queued twice.
+if (desktop) startSyncClient()
+else startScheduler((fn) => eachTenant(fn, 'automation'))
 
-app.listen(config.port, () => {
-  console.log(`[server] API ready on http://localhost:${config.port} (${config.isProduction ? 'production' : 'development'})`)
+app.listen(config.port, config.host, () => {
+  console.log(`[server] ${desktop ? 'Desktop' : 'Central'} API ready on http://${config.host || 'localhost'}:${config.port} (${config.isProduction ? 'production' : 'development'})`)
+  if (desktop) console.log(`[sync] Central server: ${config.desktop.centralUrl}`)
+  else console.log(config.platform.owner.email ? `[platform] Owner console: /owner (${config.platform.owner.email})` : '[platform] Set OWNER_EMAIL and OWNER_PASSWORD in .env to open the owner console at /owner')
   console.log(aiEnabled ? `[ai] AI enabled: ${config.ai.provider} (${config.ai.model}${config.ai.fallbackModel ? `, fallback ${config.ai.fallbackModel}` : ''})` : `[ai] ${config.ai.keyVar} not set - AI features are disabled, everything else works.`)
 })

@@ -719,3 +719,14 @@ a.kpi:hover { text-decoration: none; transform: translateY(-2px); box-shadow: 0 
   .cert-frame { box-shadow: none; }
 }
 @media (max-width: 600px) { .hide-sm { display: none; } }
+
+/* ── Owner console ── */
+.owner-shell { min-height: 100vh; background: var(--bg); }
+.owner-top { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 12px; padding: 10px 24px; background: var(--surface); border-bottom: 1px solid var(--border); }
+.owner-top a { color: inherit; text-decoration: none; }
+.owner-main { max-width: 1280px; margin: 0 auto; padding: 24px; }
+.module-checks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 14px; }
+.module-checks .full { grid-column: 1 / -1; }
+.module-check { align-items: flex-start; font-weight: 400; }
+.module-check .hint { display: block; font-style: normal; }
+@media (max-width: 600px) { .owner-main { padding: 16px; } .module-checks { grid-template-columns: minmax(0, 1fr); } }

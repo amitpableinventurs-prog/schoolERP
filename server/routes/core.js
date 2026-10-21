@@ -2,6 +2,7 @@ import { Router } from 'express'
 import bcrypt from 'bcryptjs'
 import { allow, clearSessionCookie, requireAuth, setSessionCookie, staffOnly, superOnly } from '../auth.js'
 import { crudRouter } from '../crud.js'
+import { config } from '../config.js'
 import { Attendance, Batch, FeeInstallment, Mark, Notice, Payment, Setting, Staff, Student, User } from '../models.js'
 import { atRiskStudents, attendanceSummary, dashboardStats, getSettings, installmentStatus } from '../insights.js'
 import { createFeePlan, createStudentLogin, DEFAULT_PARENT_PASSWORD, DEFAULT_STUDENT_PASSWORD, nextAdmissionNo, parentLoginId, syncParentLogin } from '../services.js'
@@ -73,8 +74,9 @@ router.get('/auth/me', asyncHandler(async (req, res) => {
     ? await Student.find({ _id: { $in: user.children || [] } }, 'name admissionNo batch status').populate('batch', 'name type').sort({ name: 1 }).lean()
     : undefined
   res.json({
-    user: { id: user._id, name: user.name, role: user.role, loginId: user.loginId, student: user.student, children, wings: user.role === 'superadmin' || !user.wings?.length ? null : user.wings },
+    user: { id: user._id, name: user.name, role: user.role, loginId: user.loginId, student: user.student, children, wings: user.role === 'superadmin' || !user.wings?.length ? null : user.wings, modules: req.modules || null },
     institute: pick(settings, ['instituteName', 'tagline', 'phone', 'email', 'address', 'academicYear']),
+    desktop: config.mode === 'desktop',
   })
 }))
 

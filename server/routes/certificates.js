@@ -6,6 +6,7 @@ import { Certificate, CertificateTemplate, CERT_KINDS, CERT_STYLES, Student } fr
 import { feeSummaryByStudent, getSettings } from '../insights.js'
 import { asyncHandler, escapeRegex, httpError, pick, ymd } from '../util.js'
 import { assertBatch, batchFilter, batchInScope, scopeOf } from '../scope.js'
+import { seriesTag } from '../desktop.js'
 
 const router = Router()
 const issuers = allow('teacher', 'accountant')
@@ -91,8 +92,8 @@ export function fillTemplate(text, student, settings, extras, issuedOn) {
 }
 
 async function nextSerials(code, count) {
-  const prefix = `${code}-${ymd().slice(0, 4)}-`
-  const last = await Certificate.findOne({ serialNo: { $regex: `^${escapeRegex(prefix)}` } }).sort({ serialNo: -1 }).lean()
+  const prefix = `${code}-${ymd().slice(0, 4)}-${seriesTag()}`
+  const last = await Certificate.findOne({ serialNo: { $regex: `^${escapeRegex(prefix)}\\d+$` } }).sort({ serialNo: -1 }).lean()
   const start = last ? Number(last.serialNo.slice(prefix.length)) + 1 : 1
   return Array.from({ length: count }, (_, i) => `${prefix}${String(start + i).padStart(5, '0')}`)
 }

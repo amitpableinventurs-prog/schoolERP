@@ -11,7 +11,11 @@
     "start": "node --env-file-if-exists=.env server/index.js",
     "seed": "node --env-file-if-exists=.env server/seed.js --reset",
     "preview": "vite preview",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "desktop:install": "npm --prefix desktop install",
+    "desktop:build": "node desktop/build.mjs",
+    "desktop:stage": "node desktop/build.mjs --stage-only",
+    "desktop:dev": "npm --prefix desktop run dev"
   },
   "engines": {
     "node": ">=20.12"

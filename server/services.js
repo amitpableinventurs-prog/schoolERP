@@ -2,7 +2,8 @@ import bcrypt from 'bcryptjs'
 import { Attendance, Batch, Course, CourseProgress, Exam, FeeInstallment, Mark, Payment, Setting, Staff, Student, TimetableSlot, User } from './models.js'
 import { getSettings } from './insights.js'
 import { config } from './config.js'
-import { addDays, grade, ymd } from './util.js'
+import { addDays, escapeRegex, grade, ymd } from './util.js'
+import { seriesTag } from './desktop.js'
 
 export const DEFAULT_STUDENT_PASSWORD = 'student123'
 export const DEFAULT_PARENT_PASSWORD = 'parent123'
@@ -31,8 +32,9 @@ export async function createFeePlan(student, { startDate = ymd(), gapDays, repla
 }
 
 export async function nextReceiptNo() {
-  const prefix = `RCP-${ymd().slice(0, 4)}-`
-  const last = await Payment.findOne({ receiptNo: { $regex: `^${prefix}` } }).sort({ receiptNo: -1 }).lean()
+  // The desktop app adds its device code (RCP-2026-D2-00001) so offline receipts never clash.
+  const prefix = `RCP-${ymd().slice(0, 4)}-${seriesTag()}`
+  const last = await Payment.findOne({ receiptNo: { $regex: `^${escapeRegex(prefix)}\\d+$` } }).sort({ receiptNo: -1 }).lean()
   const n = last ? Number(last.receiptNo.slice(prefix.length)) + 1 : 1
   return `${prefix}${String(n).padStart(5, '0')}`
 }
@@ -90,10 +92,10 @@ export async function nextAdmissionNo(type) {
   const settings = await getSettings()
   const prefix = { school: 'SCH', college: 'CLG', coaching: 'COA' }[type] || 'STU'
   const year = (settings.academicYear || ymd().slice(0, 4)).slice(2, 4)
-  const rx = new RegExp(`^${prefix}${year}`)
-  const last = await Student.findOne({ admissionNo: rx }).sort({ admissionNo: -1 }).lean()
-  const n = last ? Number(last.admissionNo.slice(prefix.length + 2)) + 1 : 1
-  return `${prefix}${year}${String(n).padStart(4, '0')}`
+  const base = `${prefix}${year}${seriesTag()}`
+  const last = await Student.findOne({ admissionNo: new RegExp(`^${escapeRegex(base)}\\d+$`) }).sort({ admissionNo: -1 }).lean()
+  const n = last ? Number(last.admissionNo.slice(base.length)) + 1 : 1
+  return `${base}${String(n).padStart(4, '0')}`
 }
 
 /* ── Parent logins ── */

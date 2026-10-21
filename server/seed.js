@@ -9,6 +9,7 @@ import {
 } from './models.js'
 import { DEFAULT_STUDENT_PASSWORD, ensureParentLogins, recomputeExam, recordPayment } from './services.js'
 import { seedLmsDemo } from './seed-lms.js'
+import { ensureIndexes, tenantConnection } from './tenancy.js'
 import { addDays, ymd } from './util.js'
 import { config } from './config.js'
 import { ensureRules } from './automation.js'
@@ -71,8 +72,8 @@ export async function createDemoWingAdmins() {
 }
 
 export async function wipeDatabase() {
-  await mongoose.connection.dropDatabase()
-  await Promise.all(mongoose.modelNames().map((name) => mongoose.model(name).syncIndexes()))
+  await tenantConnection().dropDatabase()
+  await ensureIndexes()
 }
 
 export async function seedDemoData(initialAdmin) {

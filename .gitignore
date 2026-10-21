@@ -4,3 +4,9 @@ dist
 *.log
 *.err
 server/uploads
+keys/
+desktop/node_modules
+desktop/.stage
+desktop/release
+.desktop-data
+desktop/vendor

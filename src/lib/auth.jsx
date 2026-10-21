@@ -1,15 +1,16 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useCallback, useContext, useEffect, useState } from 'react'
 import { api } from './api.js'
+import { hasModule, SECTION_MODULE } from '../../shared/modules.js'
 
 const AuthContext = createContext(null)
 
 export function AuthProvider({ children }) {
-  const [state, setState] = useState({ loading: true, user: null, institute: null })
+  const [state, setState] = useState({ loading: true, user: null, institute: null, desktop: false })
 
   const refresh = useCallback(() => api.get('/auth/me').then(
-    (data) => setState({ loading: false, user: data.user, institute: data.institute }),
-    () => setState({ loading: false, user: null, institute: null })
+    (data) => setState({ loading: false, user: data.user, institute: data.institute, desktop: Boolean(data.desktop) }),
+    () => setState((s) => ({ ...s, loading: false, user: null, institute: null }))
   ), [])
 
   useEffect(() => {
@@ -26,7 +27,7 @@ export function AuthProvider({ children }) {
 
   const logout = async () => {
     await api.post('/auth/logout')
-    setState({ loading: false, user: null, institute: null })
+    setState((s) => ({ ...s, loading: false, user: null, institute: null }))
   }
 
   return <AuthContext.Provider value={{ ...state, login, logout, refresh }}>{children}</AuthContext.Provider>
@@ -70,9 +71,10 @@ export const ACCESS = {
 const SUPER_ONLY = ['admins', 'activity']
 
 export const isAdmin = (user) => user?.role === 'admin' || user?.role === 'superadmin'
-export const can = (user, section) => user?.role === 'superadmin'
+// A section also needs its module in the institute's plan (user.modules, null = all).
+export const can = (user, section) => hasModule(user?.modules, SECTION_MODULE[section]) && (user?.role === 'superadmin'
   || (user?.role === 'admin' && !SUPER_ONLY.includes(section))
-  || (ACCESS[section] || []).includes(user?.role)
+  || (ACCESS[section] || []).includes(user?.role))
 
 // Wings (school / college / coaching) the user works in; null wings = the whole institute.
 export const WINGS = ['school', 'college', 'coaching']

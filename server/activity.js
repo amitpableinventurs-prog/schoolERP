@@ -2,6 +2,7 @@
 // (POST / PUT / DELETE) is recorded automatically by `activityLogger`; logins and
 // failed logins are recorded by the login route through `logActivity`.
 import { ActivityLog } from './models.js'
+import { bindTenant } from './tenancy.js'
 
 const VERB = { POST: 'create', PUT: 'update', PATCH: 'update', DELETE: 'delete' }
 
@@ -115,7 +116,8 @@ export function activityLogger(req, res, next) {
     res.locals.body = body
     return json(body)
   }
-  res.on('finish', () => {
+  // 'finish' fires outside the request's async context: keep the institute bound.
+  res.on('finish', bindTenant(() => {
     if (!req.user || ['student', 'parent'].includes(req.user.role) || res.statusCode >= 400) return
     const path = req.originalUrl.split('?')[0].replace(/^\/api/, '')
     if (SKIP.some((rx) => rx.test(path))) return
@@ -129,6 +131,6 @@ export function activityLogger(req, res, next) {
       status: res.statusCode,
       detail: detailOf(req.body),
     })
-  })
+  }))
   next()
 }

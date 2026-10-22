@@ -42,7 +42,10 @@ async function request(method, url, body) {
   if (!res.ok) {
     const error = new Error(data?.error || (res.status >= 500 ? 'Server is not responding. Is the API running?' : `Request failed (${res.status})`))
     error.status = res.status
+    error.locked = Boolean(data?.locked)
     if (res.status === 401 && !url.startsWith('/auth/')) window.dispatchEvent(new Event('session-expired'))
+    // Desktop licence locked (or institute suspended): the whole app shows the lock screen.
+    if (error.locked) window.dispatchEvent(new CustomEvent('app-locked', { detail: error.message }))
     throw error
   }
   return data

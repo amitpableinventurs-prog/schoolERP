@@ -7,7 +7,7 @@ import { verifyLicense } from '../license.js'
 import { modelOf, runWithTenant } from '../tenancy.js'
 import { asyncHandler } from '../util.js'
 import { collectionsFor } from '../../shared/modules.js'
-import { effectiveModules, Installation, issueLicense, Tenant, tenantBlock, tenantCtx } from '../platform/store.js'
+import { effectiveModules, Installation, issueLicense, keyExpired, keyExpiredMessage, Tenant, tenantBlock, tenantCtx } from '../platform/store.js'
 import { applyDocs, applyTombstones, changesAfter, fromEJSON, toEJSON } from './common.js'
 
 const router = Router()
@@ -20,7 +20,9 @@ router.use(asyncHandler(async (req, res, next) => {
   const payload = verifyLicense(token)
   if (!payload) return sendEJSON(res, 401, { error: 'This licence is not valid for this server. Please activate the app again.', code: 'invalid' })
   const inst = await Installation.findById(payload.iid)
-  if (!inst || inst.status !== 'active') return sendEJSON(res, 403, { error: 'This installation has been deactivated by your service provider.', code: 'revoked' })
+  if (!inst || inst.status === 'deleted') return sendEJSON(res, 403, { error: 'The key of this computer has been deleted by your super admin. Ask for a new key, then press Alt and choose App → Change activation key.', code: 'revoked' })
+  if (keyExpired(inst)) return sendEJSON(res, 402, { error: keyExpiredMessage(inst), code: 'expired' })
+  if (inst.status !== 'active') return sendEJSON(res, 403, { error: 'The key of this computer has been deactivated by your super admin. The app opens again by itself once the key is activated.', code: 'revoked' })
   if (!inst.machineId || inst.machineId !== req.get('x-machine-id')) {
     return sendEJSON(res, 403, { error: 'This activation key now belongs to another computer. Please activate the app again.', code: 'moved' })
   }

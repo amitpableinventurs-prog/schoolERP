@@ -19,6 +19,7 @@ import transportRoutes from './routes/transport.js'
 import payrollRoutes from './routes/payroll.js'
 import financeRoutes from './routes/finance.js'
 import certificateRoutes, { verifyCertificate } from './routes/certificates.js'
+import { gpsPublic, gpsStaff } from './routes/gps.js'
 import { activityLogger } from './activity.js'
 import { ensureIndexes, runWithTenant } from './tenancy.js'
 import { loadSigningKeys } from './license.js'
@@ -65,6 +66,9 @@ app.get('/api/verify/:serial', (req, res, next) => {
   next()
 }, verifyCertificate)
 
+// Bus positions from drivers' phones and GPS trackers (no login; the tracking token identifies the bus).
+if (!desktop) app.use('/api/gps', gpsPublic)
+
 app.use('/api', coreRoutes)
 app.use('/api/portal', requireAuth, portalRoutes)
 app.use('/api/parent', requireAuth, parentRoutes)
@@ -73,6 +77,8 @@ app.use('/api', requireAuth, officeRoutes)
 app.use('/api', requireAuth, lmsRoutes)
 app.use('/api', requireAuth, superadminRoutes)
 app.use('/api', requireAuth, transportRoutes)
+// Live tracking needs the internet, so the desktop app does not have it.
+if (!desktop) app.use('/api', requireAuth, gpsStaff)
 app.use('/api', requireAuth, payrollRoutes)
 app.use('/api', requireAuth, financeRoutes)
 app.use('/api', requireAuth, certificateRoutes)

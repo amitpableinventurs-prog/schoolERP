@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect } from 'react'
+import { KeyRound, Lock, RefreshCw } from 'lucide-react'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { can, useAuth } from './lib/auth.jsx'
 import Layout from './components/Layout.jsx'
@@ -41,6 +42,8 @@ const Staff = {
   Leaves: page(() => import('./pages/staff/Leaves.jsx')),
   Admins: page(() => import('./pages/staff/Admins.jsx')),
   ActivityLog: page(() => import('./pages/staff/ActivityLog.jsx')),
+  DesktopApps: page(() => import('./pages/staff/DesktopApps.jsx')),
+  TransportLive: page(() => import('./pages/staff/TransportLive.jsx')),
   TransportDashboard: page(() => import('./pages/staff/TransportDashboard.jsx')),
   TransportVehicles: page(() => import('./pages/staff/TransportVehicles.jsx')),
   TransportRoutes: page(() => import('./pages/staff/TransportRoutes.jsx')),
@@ -82,6 +85,7 @@ const Portal = {
   Certificate: page(() => import('./pages/portal/MyCertificates.jsx').then((m) => ({ default: m.MyCertificate }))),
 }
 const Verify = page(() => import('./pages/Verify.jsx'))
+const DriverTrack = page(() => import('./pages/DriverTrack.jsx'))
 const OwnerApp = page(() => import('./pages/owner/Owner.jsx'))
 const Parent = {
   Home: page(() => import('./pages/parent/ParentHome.jsx')),
@@ -135,7 +139,9 @@ function StaffRoutes() {
         <Route path="leaves" element={g('leaves', <S.Leaves />)} />
         <Route path="admins" element={g('admins', <S.Admins />)} />
         <Route path="activity" element={g('activity', <S.ActivityLog />)} />
+        <Route path="desktop-apps" element={g('desktopApps', <S.DesktopApps />)} />
         <Route path="transport" element={g('transport', <S.TransportDashboard />)} />
+        <Route path="transport/live" element={g('transport', <S.TransportLive />)} />
         <Route path="transport/vehicles" element={g('transport', <S.TransportVehicles />)} />
         <Route path="transport/routes" element={g('transport', <S.TransportRoutes />)} />
         <Route path="transport/assignments" element={g('transport', <S.TransportAssignments />)} />
@@ -233,10 +239,34 @@ function ToLogin() {
   return <Navigate to={`${PORTALS[key].login}${next}`} replace />
 }
 
+// Desktop licence locked (deactivated key, too long offline) or institute suspended.
+// Checks again by itself, so the app opens as soon as the key is activated again.
+function LockScreen({ message }) {
+  const { refresh } = useAuth()
+  useEffect(() => {
+    const timer = setInterval(refresh, 10_000)
+    return () => clearInterval(timer)
+  }, [refresh])
+  return (
+    <div className="auth-wrap">
+      <section className="auth-form" style={{ margin: '0 auto' }}>
+        <div className="card card-pad auth-card stack">
+          <div className="auth-card-icon"><Lock size={22} /></div>
+          <h1>This app is locked</h1>
+          <div className="alert alert-error">{message}</div>
+          <p className="small muted">It checks again every few seconds and opens by itself as soon as access is restored (for the desktop app: when the key is activated again and this computer is online).</p>
+          <button className="btn" onClick={refresh}><RefreshCw size={15} /> Check now</button>
+          {window.sc?.changeKey && <button className="btn btn-ghost" onClick={() => window.sc.changeKey()}><KeyRound size={15} /> Use a different key</button>}
+        </div>
+      </section>
+    </div>
+  )
+}
+
 const isLoginPath = (path) => path === '/login' || Object.values(PORTALS).some((p) => p.login === path)
 
 export default function App() {
-  const { loading, user } = useAuth()
+  const { loading, user, locked } = useAuth()
   const { pathname, search } = useLocation()
   const portal = user && portalOfRole(user.role)
   useEffect(() => { if (portal) rememberPortal(portal) }, [portal])
@@ -249,6 +279,14 @@ export default function App() {
       </Suspense>
     )
   }
+  // The bus driver's tracking page needs no login (the token in the link identifies the bus).
+  if (pathname.startsWith('/track/')) {
+    return (
+      <Suspense fallback={<Loading />}>
+        <Routes><Route path="/track/:token" element={<DriverTrack />} /></Routes>
+      </Suspense>
+    )
+  }
   // The provider's owner console has its own login, separate from institute users.
   if (pathname === '/owner' || pathname.startsWith('/owner/')) {
     return (
@@ -258,6 +296,7 @@ export default function App() {
     )
   }
   if (loading) return <Loading text="Starting…" />
+  if (locked) return <LockScreen message={locked} />
   if (!user) {
     return (
       <Routes>

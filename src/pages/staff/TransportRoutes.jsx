@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { Clock, GripVertical, MapPin, Pencil, Plus, Route as RouteIcon, Trash2, Users } from 'lucide-react'
+import { Clock, GripVertical, LocateFixed, MapPin, MapPinned, Pencil, Plus, Route as RouteIcon, Trash2, Users } from 'lucide-react'
+import LiveMap from '../../components/LiveMap.jsx'
 import { api } from '../../lib/api.js'
 import { myWings, useAuth, WING_LABEL } from '../../lib/auth.jsx'
 import { money } from '../../lib/format.js'
@@ -50,8 +51,44 @@ function RouteForm({ item, allowed, onClose, onSaved }) {
   )
 }
 
+// Click on the map (or paste "lat, lng" from Google Maps) to place one stop.
+function StopPicker({ stop, others, onClose, onPick }) {
+  const [point, setPoint] = useState(stop.lat != null ? { lat: stop.lat, lng: stop.lng } : null)
+  const [text, setText] = useState(stop.lat != null ? `${stop.lat}, ${stop.lng}` : '')
+  const [error, setError] = useState(null)
+  const choose = (p) => { setPoint(p); setText(`${p.lat}, ${p.lng}`); setError(null) }
+  const typed = (value) => {
+    setText(value)
+    const m = value.match(/(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)/)
+    if (m && Math.abs(Number(m[1])) <= 90 && Math.abs(Number(m[2])) <= 180) { setPoint({ lat: Number(m[1]), lng: Number(m[2]) }); setError(null) }
+  }
+  const here = () => navigator.geolocation?.getCurrentPosition(
+    (p) => choose({ lat: Math.round(p.coords.latitude * 1e6) / 1e6, lng: Math.round(p.coords.longitude * 1e6) / 1e6 }),
+    () => setError('Could not read the location of this device (it needs permission and an https address).'),
+    { enableHighAccuracy: true, timeout: 15_000 },
+  )
+  return (
+    <Modal title={`Map position – ${stop.name || 'stop'}`} size="lg" onClose={onClose} footer={<>
+      <button className="btn" onClick={onClose}>Cancel</button>
+      {stop.lat != null && <button className="btn btn-ghost" onClick={() => onPick({ lat: undefined, lng: undefined })}>Remove position</button>}
+      <button className="btn btn-primary" disabled={!point} onClick={() => onPick(point)}>Use this position</button>
+    </>}>
+      <div className="stack">
+        <p className="small muted" style={{ margin: 0 }}>Zoom in and click exactly where the bus stops. Other stops of this route are shown in blue.</p>
+        <LiveMap stops={others} picked={point} onPick={choose} fitKey="open" height={420} />
+        <div className="row" style={{ gap: 8 }}>
+          <input className="input mono" value={text} onChange={(e) => typed(e.target.value)} placeholder="26.9124, 75.7873 (paste from Google Maps)" />
+          <button className="btn" onClick={here} title="Use this device's current location"><LocateFixed size={15} /> I am here</button>
+        </div>
+        {error && <div className="small" style={{ color: 'var(--bad-text)' }}>{error}</div>}
+      </div>
+    </Modal>
+  )
+}
+
 function StopsEditor({ route, onClose, onSaved }) {
   const [stops, setStops] = useState(() => (route.stops || []).map((s) => ({ ...s })))
+  const [picking, setPicking] = useState(null) // index of the stop being placed
   const [run, busy] = useAction()
   const add = () => setStops([...stops, { name: '', sequence: stops.length + 1, pickupTime: '', dropTime: '', fee: 0, landmark: '' }])
   const update = (idx, k, v) => setStops(stops.map((s, i) => (i === idx ? { ...s, [k]: v } : s)))
@@ -68,7 +105,8 @@ function StopsEditor({ route, onClose, onSaved }) {
     if (ok) onSaved()
   }
   return (
-    <Modal title={`Stops – ${route.name}`} size="lg" onClose={onClose} footer={<>
+    <>
+    <Modal title={`Stops – ${route.name}`} size="lg" onClose={() => picking == null && onClose()} footer={<>
       <button className="btn" onClick={onClose}>Cancel</button>
       <button className="btn btn-primary" onClick={save} disabled={busy}>Save stops</button>
     </>}>
@@ -76,7 +114,7 @@ function StopsEditor({ route, onClose, onSaved }) {
         <p className="small muted">Order the stops from the first pickup to the school. The school/depot is typically the last stop. Riders with active assignments cannot be removed before reassignment.</p>
         <div className="table-wrap">
           <table className="table">
-            <thead><tr><th style={{ width: 24 }}></th><th>#</th><th>Stop name</th><th>Pickup</th><th>Drop</th><th className="num">Fee (₹/mo)</th><th>Landmark</th><th></th></tr></thead>
+            <thead><tr><th style={{ width: 24 }}></th><th>#</th><th>Stop name</th><th>Pickup</th><th>Drop</th><th className="num">Fee (₹/mo)</th><th>Landmark</th><th>Map</th><th></th></tr></thead>
             <tbody>
               {stops.map((s, idx) => (
                 <tr key={s._id || idx}>
@@ -92,6 +130,7 @@ function StopsEditor({ route, onClose, onSaved }) {
                   <td><input className="input" type="time" value={s.dropTime || ''} onChange={(e) => update(idx, 'dropTime', e.target.value)} /></td>
                   <td><input className="input num" type="number" value={s.fee || 0} onChange={(e) => update(idx, 'fee', Number(e.target.value) || 0)} /></td>
                   <td><input className="input" value={s.landmark || ''} onChange={(e) => update(idx, 'landmark', e.target.value)} placeholder="Near…" /></td>
+                  <td><button className={`btn btn-sm${s.lat != null ? '' : ' btn-ghost'}`} onClick={() => setPicking(idx)} title={s.lat != null ? `${s.lat}, ${s.lng}` : 'Set the position on the map'}><MapPinned size={14} /> {s.lat != null ? 'Set' : 'Pick'}</button></td>
                   <td><button className="btn btn-sm btn-ghost btn-icon btn-danger" onClick={() => remove(idx)} aria-label="Remove stop"><Trash2 size={14} /></button></td>
                 </tr>
               ))}
@@ -101,6 +140,15 @@ function StopsEditor({ route, onClose, onSaved }) {
         <div><button className="btn" onClick={add}><Plus size={14} /> Add stop</button></div>
       </div>
     </Modal>
+      {picking != null && (
+        <StopPicker
+          stop={stops[picking]}
+          others={stops.filter((s, i) => i !== picking && s.lat != null).map((s) => ({ id: s._id || s.name, lat: s.lat, lng: s.lng, name: s.name }))}
+          onClose={() => setPicking(null)}
+          onPick={(p) => { setStops(stops.map((s, i) => (i === picking ? { ...s, lat: p.lat, lng: p.lng } : s))); setPicking(null) }}
+        />
+      )}
+    </>
   )
 }
 

@@ -1,12 +1,15 @@
-// Super admin: wings overview, allocated admins and the activity log.
-// Creating and editing admin logins goes through /users (core.js).
+// Super admin: wings overview, allocated admins, the activity log and the
+// institute's desktop app keys. Creating and editing admin logins goes through /users (core.js).
+import fs from 'node:fs'
 import { Router } from 'express'
 import { superOnly } from '../auth.js'
+import { config } from '../config.js'
 import { ActivityLog, Batch, INSTITUTION_TYPES, Student, User } from '../models.js'
-import { addDays, asyncHandler, escapeRegex, ymd } from '../util.js'
+import { addDays, asyncHandler, escapeRegex, httpError, pick, ymd } from '../util.js'
+import { changeInstallation, createInstallation, deleteInstallation, Installation, installationView, LISTED, renewInstallation, resetInstallationDevice } from '../platform/store.js'
 
 const router = Router()
-router.use(['/admin', '/activity'], superOnly)
+router.use(['/admin', '/activity', '/desktop-apps'], superOnly)
 
 const sinceDays = (n) => new Date(`${addDays(ymd(), -n + 1)}T00:00:00`)
 
@@ -108,6 +111,59 @@ router.get('/activity/summary', asyncHandler(async (req, res) => {
     failed,
     modules: modules.filter(Boolean).sort(),
   })
+}))
+
+/* ── Desktop app (Windows .exe) keys of this institute ── */
+
+// Keys live on the central server, so they are managed online (the desktop app
+// shows its own licence on the same page instead).
+router.use('/desktop-apps', (req, res, next) => {
+  if (config.mode === 'desktop') return next(httpError(409, 'Desktop app keys are managed online. Open the institute website as super admin.'))
+  next()
+})
+
+const installer = () => fs.readdirSync(config.platform.installerDir, { withFileTypes: true }).some((f) => f.isFile() && /setup.*\.exe$/i.test(f.name))
+
+router.get('/desktop-apps', asyncHandler(async (req, res) => {
+  const tenant = req.tenant
+  const rows = await Installation.find({ tenant: tenant._id, ...LISTED }, '-sync.conflicts').sort({ createdAt: -1 }).lean()
+  let hasInstaller = false
+  try { hasInstaller = installer() } catch { /* no release folder yet */ }
+  res.json({
+    installations: rows.map((i) => installationView(tenant, i)),
+    modules: tenant.modules,
+    limit: tenant.maxInstallations || null,
+    active: rows.filter((i) => i.status === 'active').length,
+    offlineDays: tenant.offlineGraceDays ?? config.platform.offlineGraceDays,
+    serverUrl: config.platform.publicUrl,
+    installer: hasInstaller,
+  })
+}))
+
+router.post('/desktop-apps', asyncHandler(async (req, res) => {
+  res.status(201).json(await createInstallation(req.tenant, req.body))
+}))
+
+const own = async (req) => {
+  const inst = await Installation.findOne({ _id: req.params.id, tenant: req.tenant._id, ...LISTED })
+  if (!inst) throw httpError(404, 'Desktop app not found.')
+  return inst
+}
+
+router.put('/desktop-apps/:id', asyncHandler(async (req, res) => {
+  res.json(await changeInstallation(req.tenant, await own(req), pick(req.body, ['label', 'modules', 'status', 'plan', 'expiresAt'])))
+}))
+
+router.post('/desktop-apps/:id/reset-device', asyncHandler(async (req, res) => {
+  res.json(await resetInstallationDevice({ _id: (await own(req))._id }))
+}))
+
+router.post('/desktop-apps/:id/renew', asyncHandler(async (req, res) => {
+  res.json(await renewInstallation(await own(req)))
+}))
+
+router.delete('/desktop-apps/:id', asyncHandler(async (req, res) => {
+  res.json(await deleteInstallation({ _id: (await own(req))._id }))
 }))
 
 export default router

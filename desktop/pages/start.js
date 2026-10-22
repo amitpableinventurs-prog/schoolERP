@@ -28,9 +28,11 @@ if (mode === 'activate') {
 } else {
   $('loading').hidden = false
   if (info.text) $('status').textContent = info.text
+  $('changeKey').addEventListener('click', () => window.sc.changeKey())
   window.sc.onStatus((status) => {
     if (status.text) $('status').textContent = status.text
     $('loadError').hidden = !status.error
+    $('changeKey').hidden = !status.error
     if (status.error) $('loadError').textContent = status.error
   })
 }

@@ -8,7 +8,7 @@ const VERB = { POST: 'create', PUT: 'update', PATCH: 'update', DELETE: 'delete' 
 
 // Read-only AI helpers and chat are not changes; skip them to keep the log useful.
 const SKIP = [/^\/certificates\/preview$/, /^\/ai\/chat$/, /^\/ai\/risk-plan\//, /^\/notices\/ai-draft$/, /^\/tests\/ai-generate$/, /^\/leads\/[^/]+\/ai-message$/, /^\/auth\/login$/]
-const UPDATES = [/^\/payroll\/(approve|unapprove|pay)$/,/^\/certificates\/[^/]+\/(revoke|share)$/, /^\/students\/[^/]+\/(reset-password|parent-login)$/, /^\/leads\/[^/]+\/(followups|convert)$/, /^\/outbox\/bulk$/, /^\/automation\/rules\/[^/]+\/run$/, /^\/automation\/run-all$/, /^\/auth\/password$/]
+const UPDATES = [/^\/payroll\/(approve|unapprove|pay)$/,/^\/certificates\/[^/]+\/(revoke|share)$/, /^\/students\/[^/]+\/(reset-password|parent-login)$/, /^\/leads\/[^/]+\/(followups|convert)$/, /^\/outbox\/bulk$/, /^\/automation\/rules\/[^/]+\/run$/, /^\/automation\/run-all$/, /^\/auth\/password$/, /^\/desktop-apps\/[^/]+\/(reset-device|renew)$/]
 const AI = [/^\/papers\/generate$/, /^\/exams\/[^/]+\/ai-remarks$/, /^\/doubts\/[^/]+\/ai-answer$/]
 
 const MODULE = {
@@ -17,6 +17,7 @@ const MODULE = {
   materials: 'Study material', doubts: 'Doubts', notices: 'Notices', fees: 'Fees', leads: 'Admissions CRM',
   automation: 'Automation', outbox: 'Outbox', courses: 'LMS courses', assignments: 'Assignments', leaves: 'Leave requests',
   certificates: 'Certificates', transport: 'Transport', payroll: 'Payroll', finance: 'Finance',
+  'desktop-apps': 'Desktop apps',
 }
 
 const NOUN = {
@@ -35,6 +36,14 @@ function describe(req, body, parts) {
   const m = req.method
   const name = label(body) || label(b)
   if (mod === 'auth' && id === 'password') return 'Changed own password'
+  if (mod === 'desktop-apps') {
+    if (sub === 'reset-device') return `Freed desktop key ${body?.key || ''} for another computer`
+    if (sub === 'renew') return `Renewed desktop app key "${body?.label}" (${body?.key}) until ${body?.expiresAt ? new Date(body.expiresAt).toLocaleDateString('en-IN') : '-'}`
+    if (m === 'DELETE') return `Deleted desktop app key "${body?.label}" (${body?.key})`
+    if (m === 'POST') return `Created desktop app key "${body?.label}" (${body?.key})`
+    if (b.status) return `${b.status === 'revoked' ? 'Deactivated' : 'Activated'} desktop app "${body?.label}" (${body?.key})`
+    return `Changed desktop app "${body?.label}"`
+  }
   if (mod === 'payroll' && id === 'generate') return `Generated payroll for ${b.month || 'this month'}${body?.created != null ? ` — ${body.created} payslip(s)` : ''}`
   if (mod === 'payroll' && id === 'approve') return `Approved ${body?.updated ?? ''} payslip(s)`
   if (mod === 'payroll' && id === 'pay') return `Paid salary to ${body?.paid ?? ''} staff — ${money(body?.amount)} by ${b.mode || 'bank'}`

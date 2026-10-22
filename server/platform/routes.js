@@ -11,11 +11,13 @@ import jwt from 'jsonwebtoken'
 import { config } from '../config.js'
 import { initTenant } from '../db.js'
 import { ActivityLog, Staff, Student, User } from '../models.js'
-import { newActivationKey } from '../license.js'
 import { runWithTenant } from '../tenancy.js'
 import { asyncHandler, httpError, pick } from '../util.js'
 import { ALL_MODULES } from '../../shared/modules.js'
-import { clearTenantCache, effectiveModules, Installation, issueLicense, nextDeviceCode, Tenant, tenantBlock, tenantCtx } from './store.js'
+import {
+  changeInstallation, cleanModules, clearTenantCache, createInstallation, deleteInstallation, effectiveModules, Installation, installationView, issueLicense,
+  keyExpired, keyExpiredMessage, LISTED, renewInstallation, resetInstallationDevice, Tenant, tenantBlock, tenantCtx,
+} from './store.js'
 
 const router = Router()
 const OWNER_COOKIE = 'sc_owner'
@@ -44,10 +46,11 @@ router.post('/license/activate', asyncHandler(async (req, res) => {
   const machineId = String(req.body.machineId || '').slice(0, 200)
   if (!key || !machineId) throw httpError(422, 'Activation key and machine ID are required.')
   const inst = await Installation.findOne({ key })
-  if (!inst) fail(404, 'This activation key is not valid.')
-  if (inst.status !== 'active') throw httpError(403, 'This activation key has been deactivated by your service provider.')
+  if (!inst || inst.status === 'deleted') fail(404, 'This activation key is not valid.')
+  if (inst.status !== 'active') throw httpError(403, 'This activation key has been deactivated. Ask your super admin to activate it again.')
+  if (keyExpired(inst)) throw httpError(402, keyExpiredMessage(inst))
   if (inst.machineId && inst.machineId !== machineId) {
-    throw httpError(409, `This key is already in use on another computer (${inst.deviceName || 'unknown'}). Ask your service provider to reset it.`)
+    throw httpError(409, `This key is already in use on another computer (${inst.deviceName || 'unknown'}). Ask your super admin to move it to this computer.`)
   }
   const tenant = await Tenant.findById(inst.tenant).lean()
   const block = tenantBlock(tenant)
@@ -161,7 +164,7 @@ const urlsOf = (t) => {
 
 router.get('/overview', asyncHandler(async (req, res) => {
   const tenants = await Tenant.find().sort({ isMain: -1, name: 1 }).lean()
-  const installs = await Installation.aggregate([{ $group: { _id: '$tenant', total: { $sum: 1 }, active: { $sum: { $cond: [{ $eq: ['$status', 'active'] }, 1, 0] } }, lastSeenAt: { $max: '$lastSeenAt' } } }])
+  const installs = await Installation.aggregate([{ $match: LISTED }, { $group: { _id: '$tenant', total: { $sum: 1 }, active: { $sum: { $cond: [{ $eq: ['$status', 'active'] }, 1, 0] } }, lastSeenAt: { $max: '$lastSeenAt' } } }])
   const byTenant = Object.fromEntries(installs.map((i) => [String(i._id), i]))
   const rows = await Promise.all(tenants.map(async (t) => ({
     ...t,
@@ -200,8 +203,6 @@ async function cleanDomains(list, tenantId) {
   return domains
 }
 
-const cleanModules = (list) => (Array.isArray(list) ? list.filter((m) => ALL_MODULES.includes(m)) : undefined)
-
 function tenantFields(body) {
   const data = pick(body, ['name', 'status', 'notes', 'offlineGraceDays', 'maxInstallations'])
   if ('expiresAt' in body) data.expiresAt = body.expiresAt ? new Date(`${String(body.expiresAt).slice(0, 10)}T23:59:59`) : null
@@ -238,13 +239,13 @@ router.post('/tenants', asyncHandler(async (req, res) => {
 router.get('/tenants/:id', asyncHandler(async (req, res) => {
   const tenant = await Tenant.findById(req.params.id).lean()
   if (!tenant) throw httpError(404, 'Institute not found.')
-  const installations = await Installation.find({ tenant: tenant._id }).sort({ createdAt: -1 }).lean()
+  const installations = await Installation.find({ tenant: tenant._id, ...LISTED }).sort({ createdAt: -1 }).lean()
   const superAdmins = await runWithTenant(tenantCtx(tenant), () => User.find({ role: 'superadmin' }, 'name loginId lastLoginAt active').lean())
   res.json({
     tenant: { ...tenant, urls: urlsOf(tenant), block: tenantBlock(tenant)?.message || null },
     stats: await tenantStats(tenant).catch(() => null),
     superAdmins,
-    installations: installations.map((i) => ({ ...i, effectiveModules: effectiveModules(tenant, i), downloadUrl: `${platform.publicUrl}/api/platform/download/${i.key}` })),
+    installations: installations.map((i) => installationView(tenant, i)),
     platform: platformInfo(),
   })
 }))
@@ -298,35 +299,29 @@ router.get('/tenants/:id/dns', asyncHandler(async (req, res) => {
 router.post('/tenants/:id/installations', asyncHandler(async (req, res) => {
   const tenant = await Tenant.findById(req.params.id).lean()
   if (!tenant) throw httpError(404, 'Institute not found.')
-  const label = String(req.body.label || '').trim()
-  if (!label) throw httpError(422, 'Give the installation a name, e.g. "Accounts PC".')
-  if (tenant.maxInstallations && await Installation.countDocuments({ tenant: tenant._id, status: 'active' }) >= tenant.maxInstallations) {
-    throw httpError(422, `${tenant.name} already has ${tenant.maxInstallations} active installations (its limit).`)
-  }
-  const modules = cleanModules(req.body.modules)
-  const inst = await Installation.create({
-    tenant: tenant._id, label, key: newActivationKey(), deviceCode: await nextDeviceCode(tenant._id),
-    modules: modules?.length ? modules : undefined,
-  })
-  res.status(201).json(inst)
+  res.status(201).json(await createInstallation(tenant, req.body))
 }))
 
 router.put('/installations/:id', asyncHandler(async (req, res) => {
-  const inst = await Installation.findById(req.params.id)
+  const inst = await Installation.findOne({ _id: req.params.id, ...LISTED })
   if (!inst) throw httpError(404, 'Installation not found.')
-  if ('label' in req.body) inst.label = String(req.body.label || '').trim() || inst.label
-  if ('modules' in req.body) {
-    const modules = cleanModules(req.body.modules)
-    inst.modules = modules?.length ? modules : undefined
-  }
-  if (['active', 'revoked'].includes(req.body.status)) inst.status = req.body.status
-  await inst.save()
+  res.json(await changeInstallation(await Tenant.findById(inst.tenant).lean(), inst, req.body))
+}))
+
+router.post('/installations/:id/renew', asyncHandler(async (req, res) => {
+  const inst = await Installation.findOne({ _id: req.params.id, ...LISTED })
+  if (!inst) throw httpError(404, 'Installation not found.')
+  res.json(await renewInstallation(inst))
+}))
+
+router.delete('/installations/:id', asyncHandler(async (req, res) => {
+  const inst = await deleteInstallation({ _id: req.params.id })
+  if (!inst) throw httpError(404, 'Installation not found.')
   res.json(inst)
 }))
 
-// Lets the key be activated on a different computer (old one stops syncing).
 router.post('/installations/:id/reset-device', asyncHandler(async (req, res) => {
-  const inst = await Installation.findByIdAndUpdate(req.params.id, { $unset: { machineId: 1, deviceName: 1 } }, { returnDocument: 'after' })
+  const inst = await resetInstallationDevice({ _id: req.params.id })
   if (!inst) throw httpError(404, 'Installation not found.')
   res.json(inst)
 }))

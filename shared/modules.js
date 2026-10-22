@@ -40,7 +40,7 @@ const API_MODULE = {
   fees: 'fees',
   finance: 'finance',
   payroll: 'payroll',
-  transport: 'transport',
+  transport: 'transport', gps: 'transport',
   certificates: 'certificates',
   leads: 'crm',
   automation: 'automation', outbox: 'automation',

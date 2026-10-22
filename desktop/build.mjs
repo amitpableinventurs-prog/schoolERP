@@ -59,7 +59,7 @@ copy('dist')
 for (const f of ['main.js', 'preload.cjs', 'pages']) fs.cpSync(path.join(here, f), path.join(stage, f), { recursive: true })
 fs.copyFileSync(pubFile, path.join(stage, 'license-public.pem'))
 fs.writeFileSync(path.join(stage, 'app-config.json'), JSON.stringify({ centralUrl }, null, 2))
-const browserOnly = ['react', 'react-dom', 'react-router-dom', 'lucide-react']
+const browserOnly = ['react', 'react-dom', 'react-router-dom', 'lucide-react', 'leaflet']
 fs.writeFileSync(path.join(stage, 'package.json'), JSON.stringify({
   name: 'smart-campus-erp',
   productName: 'Smart Campus ERP',

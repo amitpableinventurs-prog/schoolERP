@@ -730,3 +730,26 @@ a.kpi:hover { text-decoration: none; transform: translateY(-2px); box-shadow: 0 
 .module-check { align-items: flex-start; font-weight: 400; }
 .module-check .hint { display: block; font-style: normal; }
 @media (max-width: 600px) { .owner-main { padding: 16px; } .module-checks { grid-template-columns: minmax(0, 1fr); } }
+
+/* ── Live bus tracking map ── */
+.live-map { width: 100%; border-radius: 12px; overflow: hidden; border: 1px solid var(--border); background: var(--bg); z-index: 0; }
+.live-map .leaflet-tooltip { font: 600 12px/1.3 inherit; }
+.bus-pin { position: relative; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; gap: 2px; pointer-events: auto; }
+.bus-dot { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; color: #fff; background: #7a7a76; border: 3px solid #fff; box-shadow: 0 2px 8px rgba(0, 0, 0, .35); }
+.bus-pin.live .bus-dot { background: var(--good); animation: bus-pulse 2s infinite; }
+.bus-pin.sel .bus-dot { background: var(--accent); width: 38px; height: 38px; }
+.bus-label { font: 700 11px/1 system-ui, sans-serif; color: #0b0b0b; background: #fff; padding: 3px 6px; border-radius: 6px; white-space: nowrap; box-shadow: 0 1px 4px rgba(0, 0, 0, .25); }
+@keyframes bus-pulse { 0% { box-shadow: 0 0 0 0 rgba(12, 163, 12, .55); } 70% { box-shadow: 0 0 0 12px rgba(12, 163, 12, 0); } 100% { box-shadow: 0 0 0 0 rgba(12, 163, 12, 0); } }
+@media (prefers-reduced-motion: reduce) { .bus-pin.live .bus-dot { animation: none; } }
+.live-grid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; align-items: start; }
+@media (max-width: 960px) { .live-grid { grid-template-columns: minmax(0, 1fr); } }
+.live-list { max-height: 560px; overflow: auto; }
+.live-item { width: 100%; text-align: left; display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border: 0; border-bottom: 1px solid var(--border); background: none; color: inherit; cursor: pointer; font: inherit; }
+.live-item:hover { background: var(--accent-soft); }
+.live-item.sel { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+.live-dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 5px; flex: none; background: #9a9a95; }
+.live-dot.live { background: var(--good); }
+.live-dot.stale { background: var(--warn); }
+.driver-wrap { min-height: 100vh; display: grid; place-items: center; padding: 16px; background: var(--bg); }
+.driver-card { width: 100%; max-width: 440px; }
+.driver-big { width: 100%; padding: 18px; font-size: 18px; font-weight: 700; border-radius: 14px; }

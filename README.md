@@ -106,6 +106,28 @@ After building, the owner console's **Link** button gives a download URL per ins
 with a **desktop shortcut** and activates itself on first start (needs internet once, for the first
 download of the institute's data). Without that file name, the app asks for the key.
 
+The institute's **super admin** manages its own keys too, on the website under
+**Super Admin → Desktop Apps**: create a key, limit its modules, **Deactivate** / **Activate** it and
+**Move** it to another computer (within the owner's *max desktop installs*). Every change is in the
+Activity Log. Inside the desktop app the same page shows that computer's licence and sync status.
+Each key has a plan: **Monthly**, **Yearly**, a fixed date or no expiry. An expired key cannot be
+activated, a running app locks at its next sync (offline apps lock on the date itself), and **Renew**
+adds one month / year and unlocks it again.
+
+## Live bus tracking (GPS)
+
+Transport → **Live Bus Tracking** shows every bus on an OpenStreetMap map (refreshes every 10 s),
+with speed, last update and today's path. Positions come from either
+- the **Traccar Client** app (Android / iPhone, works in the background) or a GPS tracker that posts
+  the OsmAnd protocol to `/api/gps/osmand` - device identifier = the bus's tracking token (or its
+  *GPS device id*), or
+- the driver's phone browser at `/track/<token>` (needs the site on **https**).
+
+Each bus's **Setup** button creates the token and shows both options. Students and parents see their
+bus, their stop, the distance and a rough ETA on their Transport page. Set stop positions in
+Routes & Stops → Edit stops → **Pick** (click on the map or paste "lat, lng"). Positions stay on the
+central server (the path is kept for 3 days) and are not synced to desktop apps.
+
 Licence rules: a key binds to the first computer that activates it (**Move** in the console frees it);
 the desktop gets only its installation's modules and only those collections are synced; admin logins
 can only be created or promoted online; if a desktop is offline longer than the institute's

@@ -1,6 +1,6 @@
 import {
   Activity, Award, BookOpen, BookText, Bot, Bus, CalendarDays, CalendarX2, ChartPie, ClipboardCheck, ClipboardList, Contact, FileQuestion, FileText,
-  GraduationCap, HandCoins, IndianRupee, LayoutDashboard, Layers, Map, Megaphone, MessageCircleQuestion, MonitorPlay, Receipt, Route as RouteIcon,
+  GraduationCap, HandCoins, IndianRupee, LayoutDashboard, Layers, Map, Megaphone, MessageCircleQuestion, Monitor, MonitorPlay, Navigation, Receipt, Route as RouteIcon,
   Settings, ScrollText, ShieldAlert, ShieldCheck, SlidersHorizontal, Timer, UserCog, Users, Wallet, Workflow,
 } from 'lucide-react'
 import { can } from './auth.jsx'
@@ -13,6 +13,7 @@ const M = {
   insights: { to: '/insights', label: 'Smart Insights', icon: ShieldAlert, section: 'insights', ai: true, cat: 'Students', color: 'red' },
   admins: { to: '/admins', label: 'Admins & Wings', icon: ShieldCheck, section: 'admins', cat: 'Admin', color: 'slate' },
   activity: { to: '/activity', label: 'Activity Log', icon: Activity, section: 'activity', cat: 'Admin', color: 'teal' },
+  desktopApps: { to: '/desktop-apps', label: 'Desktop Apps', icon: Monitor, section: 'desktopApps', cat: 'Admin', color: 'indigo' },
   fees: { to: '/fees', label: 'Fees & Collection', icon: IndianRupee, section: 'fees', cat: 'Finance', color: 'green' },
   transportFees: { to: '/transport/fees', label: 'Transport Fees', icon: Receipt, section: 'transportFees', cat: 'Finance', color: 'orange' },
   finance: { to: '/finance', label: 'Finance Overview', icon: ChartPie, section: 'finance', end: true, cat: 'Finance', color: 'blue' },
@@ -34,6 +35,7 @@ const M = {
   lms: { to: '/lms', label: 'Courses (LMS)', icon: MonitorPlay, section: 'lms', cat: 'Academics', color: 'red' },
   assignments: { to: '/assignments', label: 'Assignments', icon: ClipboardList, section: 'assignments', cat: 'Academics', color: 'indigo' },
   transport: { to: '/transport', label: 'Transport Dashboard', icon: Bus, section: 'transport', end: true, cat: 'Operations', color: 'orange' },
+  transportLive: { to: '/transport/live', label: 'Live Bus Tracking', icon: Navigation, section: 'transport', cat: 'Operations', color: 'green' },
   vehicles: { to: '/transport/vehicles', label: 'Vehicles', icon: Bus, section: 'transport', cat: 'Operations', color: 'slate' },
   routes: { to: '/transport/routes', label: 'Routes & Stops', icon: RouteIcon, section: 'transport', cat: 'Operations', color: 'teal' },
   transportStudents: { to: '/transport/assignments', label: 'Transport Students', icon: Map, section: 'transport', cat: 'Operations', color: 'blue' },
@@ -50,7 +52,7 @@ const M = {
 // Sidebar: sections of links; an item with `children` is a collapsible group.
 export const STAFF_MENU = [
   { title: 'Main Navigation', items: [M.dashboard, M.assistant, M.insights] },
-  { title: 'Super Admin', items: [M.admins, M.activity] },
+  { title: 'Super Admin', items: [M.admins, M.activity, M.desktopApps] },
   { title: 'Management', items: [
     { label: 'Finance & Fees', icon: IndianRupee, children: [M.finance, M.fees, M.transportFees, M.ledger] },
     { label: 'Payroll', icon: Wallet, children: [M.payroll, M.salaryStructures, M.advances] },
@@ -59,7 +61,7 @@ export const STAFF_MENU = [
     { label: 'Online Examinations', icon: Timer, children: [M.tests, M.papers] },
     { label: 'Learning (LMS)', icon: MonitorPlay, children: [M.lms, M.assignments] },
     { label: 'Certificates', icon: Award, children: [M.certificates, M.certTemplates] },
-    { label: 'Transport', icon: Bus, children: [M.transport, M.vehicles, M.routes, M.transportStudents, M.transportAttendance] },
+    { label: 'Transport', icon: Bus, children: [M.transport, M.transportLive, M.vehicles, M.routes, M.transportStudents, M.transportAttendance] },
     { label: 'Front Office', icon: Contact, children: [M.leads, M.notices] },
     { label: 'Human Resource', icon: UserCog, children: [M.staff, M.myPayslips] },
     { label: 'System', icon: Settings, children: [M.automation, M.settings] },

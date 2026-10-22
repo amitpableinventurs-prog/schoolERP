@@ -4,7 +4,8 @@ import mongoose from 'mongoose'
 import { config } from '../config.js'
 import { fixedModel } from '../tenancy.js'
 import { ALL_MODULES, moduleLabel } from '../../shared/modules.js'
-import { signLicense } from '../license.js'
+import { newActivationKey, signLicense } from '../license.js'
+import { httpError } from '../util.js'
 
 const { Schema } = mongoose
 const db = config.platform.db
@@ -25,13 +26,21 @@ export const Tenant = fixedModel(db, 'Tenant', new Schema({
   isMain: Boolean, // the institute in MONGODB_URI, served on the platform's own hosts
 }, { timestamps: true }).index({ domains: 1 }))
 
+export const KEY_PLANS = ['none', 'monthly', 'yearly', 'custom']
+const PLAN_MONTHS = { monthly: 1, yearly: 12 }
+
 export const Installation = fixedModel(db, 'Installation', new Schema({
   tenant: { type: Schema.Types.ObjectId, ref: 'Tenant', required: true },
   key: { type: String, required: true, unique: true },
   label: { type: String, required: true, trim: true }, // "Accounts PC", "Principal laptop"
   deviceCode: { type: String, required: true }, // D1, D2… keeps offline receipt numbers apart
   modules: { type: [{ type: String, enum: ALL_MODULES }], default: undefined }, // empty = all of the institute's
-  status: { type: String, enum: ['active', 'revoked'], default: 'active' },
+  // deleted = gone from the lists; kept so its key and device code are never reused.
+  status: { type: String, enum: ['active', 'revoked', 'deleted'], default: 'active' },
+  deletedAt: Date,
+  // Validity of the key: monthly / yearly are renewed with one click; custom = a chosen date.
+  plan: { type: String, enum: KEY_PLANS, default: 'none' },
+  expiresAt: Date, // empty = no end date
   machineId: String, // bound on first activation
   deviceName: String,
   appVersion: String,
@@ -94,10 +103,12 @@ export async function ensureMainTenant() {
 
 /* ── Licences ── */
 
+// Valid offline for the grace days, never past the institute's or the key's end date.
 export function issueLicense(tenant, installation) {
   const graceDays = tenant.offlineGraceDays ?? config.platform.offlineGraceDays
   let validUntil = Date.now() + graceDays * 86_400_000
   if (tenant.expiresAt) validUntil = Math.min(validUntil, new Date(tenant.expiresAt).getTime())
+  if (installation.expiresAt) validUntil = Math.min(validUntil, new Date(installation.expiresAt).getTime())
   return signLicense({
     iid: String(installation._id),
     tid: tenant.code,
@@ -106,6 +117,7 @@ export function issueLicense(tenant, installation) {
     dc: installation.deviceCode,
     mods: effectiveModules(tenant, installation),
     mid: installation.machineId,
+    kexp: installation.expiresAt ? Math.floor(new Date(installation.expiresAt).getTime() / 1000) : undefined,
     exp: Math.floor(validUntil / 1000),
   })
 }
@@ -117,3 +129,83 @@ export async function nextDeviceCode(tenantId) {
   while (used.has(`D${n}`)) n++
   return `D${n}`
 }
+
+/* ── Installations (owner console and the institute's super admin) ── */
+
+export const cleanModules = (list) => (Array.isArray(list) ? list.filter((m) => ALL_MODULES.includes(m)) : undefined)
+
+export const installationView = (tenant, inst) => ({
+  ...inst,
+  effectiveModules: effectiveModules(tenant, inst),
+  downloadUrl: `${config.platform.publicUrl}/api/platform/download/${inst.key}`,
+})
+
+const endOfDay = (d) => { const t = new Date(d); t.setHours(23, 59, 59, 999); return t }
+const addMonths = (from, n) => { const t = new Date(from); t.setMonth(t.getMonth() + n); return endOfDay(t) }
+const fmtDay = (d) => new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+
+export const keyExpired = (inst) => Boolean(inst?.expiresAt && new Date(inst.expiresAt) < new Date())
+export const keyExpiredMessage = (inst) => `This activation key expired on ${fmtDay(inst.expiresAt)}. Ask your super admin to renew it - the app opens again by itself after that.`
+
+// { plan, expiresAt } from a form. A monthly / yearly plan starts today when it is chosen.
+function planFields(body, inst) {
+  if (!('plan' in body) && !('expiresAt' in body)) return {}
+  const plan = KEY_PLANS.includes(body.plan) ? body.plan : inst?.plan || 'none'
+  if (plan === 'none') return { plan, expiresAt: null }
+  if (plan === 'custom') {
+    const day = body.expiresAt && new Date(`${String(body.expiresAt).slice(0, 10)}T00:00:00`)
+    if (!day || Number.isNaN(day.getTime())) throw httpError(422, 'Choose the date this key expires.')
+    return { plan, expiresAt: endOfDay(day) }
+  }
+  if (inst && inst.plan === plan && inst.expiresAt) return { plan } // same plan: keep the date (use Renew)
+  return { plan, expiresAt: addMonths(new Date(), PLAN_MONTHS[plan]) }
+}
+
+// One more month / year, counted from the end date (or from today if it has passed).
+export async function renewInstallation(inst) {
+  const months = PLAN_MONTHS[inst.plan]
+  if (!months) throw httpError(422, 'Only monthly and yearly keys are renewed with one click. Set a new date with Edit.')
+  const from = inst.expiresAt && new Date(inst.expiresAt) > new Date() ? inst.expiresAt : new Date()
+  inst.expiresAt = addMonths(from, months)
+  return inst.save()
+}
+
+export async function createInstallation(tenant, body) {
+  const label = String(body.label || '').trim()
+  if (!label) throw httpError(422, 'Give the installation a name, e.g. "Accounts PC".')
+  if (tenant.maxInstallations && await Installation.countDocuments({ tenant: tenant._id, status: 'active' }) >= tenant.maxInstallations) {
+    throw httpError(422, `${tenant.name} already has ${tenant.maxInstallations} active installations (its limit).`)
+  }
+  const modules = cleanModules(body.modules)
+  return Installation.create({
+    tenant: tenant._id, label, key: newActivationKey(), deviceCode: await nextDeviceCode(tenant._id),
+    modules: modules?.length ? modules : undefined,
+    ...planFields({ plan: 'none', ...body }),
+  })
+}
+
+// Name, modules and active / revoked. A revoked installation locks at its next sync.
+export async function changeInstallation(tenant, inst, body) {
+  if ('label' in body) inst.label = String(body.label || '').trim() || inst.label
+  inst.set(planFields(body, inst))
+  if ('modules' in body) {
+    const modules = cleanModules(body.modules)
+    inst.modules = modules?.length ? modules : undefined
+  }
+  if (['active', 'revoked'].includes(body.status) && body.status !== inst.status) {
+    if (body.status === 'active' && tenant.maxInstallations
+      && await Installation.countDocuments({ tenant: tenant._id, status: 'active' }) >= tenant.maxInstallations) {
+      throw httpError(422, `${tenant.name} already has ${tenant.maxInstallations} active installations (its limit).`)
+    }
+    inst.status = body.status
+  }
+  return inst.save()
+}
+
+// Lets the key be activated on a different computer (the old one stops syncing).
+export const resetInstallationDevice = (filter) => Installation.findOneAndUpdate({ ...filter, status: { $ne: 'deleted' } }, { $unset: { machineId: 1, deviceName: 1 } }, { returnDocument: 'after' })
+
+// The computer using it locks at its next sync.
+export const deleteInstallation = (filter) => Installation.findOneAndUpdate({ ...filter, status: { $ne: 'deleted' } }, { status: 'deleted', deletedAt: new Date() }, { returnDocument: 'after' })
+
+export const LISTED = { status: { $ne: 'deleted' } }

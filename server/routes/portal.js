@@ -9,6 +9,8 @@ import { coursesForStudent, leaveDates } from '../services.js'
 import { reportCard } from './academics.js'
 import { receipt } from './office.js'
 import { myTransport } from './transport.js'
+import { myBusLive } from './gps.js'
+import { config } from '../config.js'
 import { certificateData } from './certificates.js'
 import { addDays, asyncHandler, httpError, ymd } from '../util.js'
 
@@ -283,6 +285,11 @@ views.delete('/leaves/:id', asyncHandler(async (req, res) => {
 
 views.get('/transport', asyncHandler(async (req, res) => {
   res.json(await myTransport(req.student))
+}))
+
+views.get('/transport/live', asyncHandler(async (req, res) => {
+  if (config.mode === 'desktop') throw httpError(409, 'Live bus tracking works on the online website.')
+  res.json(await myBusLive(req.student))
 }))
 
 router.use(views)

@@ -5,7 +5,7 @@ const { Schema } = mongoose
 
 // Desktop sync: deletes of synced records are remembered as tombstones so the other
 // side (central server / desktop app) can replay them.
-const NOT_TRACKED = ['ActivityLog', 'AutomationRule', 'Outbox', 'AutomationLog', 'SyncTombstone', 'SyncState']
+const NOT_TRACKED = ['ActivityLog', 'AutomationRule', 'Outbox', 'AutomationLog', 'SyncTombstone', 'SyncState', 'VehicleLocation', 'VehiclePing']
 
 async function recordDeletes(Model, ids) {
   if (!ids?.length) return
@@ -398,7 +398,8 @@ export const Vehicle = model('Vehicle', new Schema({
   fitnessExpiry: String,
   pucExpiry: String,
   permitExpiry: String,
-  gpsDeviceId: String,
+  gpsDeviceId: String, // IMEI / identifier a GPS tracker or the Traccar Client app sends
+  trackingToken: { type: String, index: { unique: true, sparse: true } }, // secret in the driver's tracking link
   wings: wingsField,
   status: { type: String, enum: ['active', 'maintenance', 'retired'], default: 'active' },
   notes: String,
@@ -620,6 +621,29 @@ export const FinanceEntry = model('FinanceEntry', new Schema({
   createdBy: ref('User'),
   createdByName: String,
 }, opts).index({ date: -1 }).index({ type: 1, category: 1 }))
+
+/* ── Live bus tracking (central server only, never synced to desktops) ── */
+
+// Latest position of each vehicle, from the driver's phone or a GPS tracker.
+export const VehicleLocation = model('VehicleLocation', new Schema({
+  vehicle: { ...ref('Vehicle'), required: true, unique: true },
+  lat: { type: Number, required: true },
+  lng: { type: Number, required: true },
+  speed: Number, // km/h
+  heading: Number, // degrees, 0 = north
+  accuracy: Number, // metres
+  at: { type: Date, required: true }, // when the device took the fix
+  source: { type: String, enum: ['phone', 'device'] },
+}))
+
+// The path driven, for the map. Removed automatically after 3 days.
+export const VehiclePing = model('VehiclePing', new Schema({
+  vehicle: { ...ref('Vehicle'), required: true },
+  lat: Number,
+  lng: Number,
+  speed: Number,
+  at: { type: Date, required: true },
+}).index({ vehicle: 1, at: 1 }).index({ at: 1 }, { expireAfterSeconds: 3 * 86_400 }))
 
 /* ── Desktop sync ── */
 

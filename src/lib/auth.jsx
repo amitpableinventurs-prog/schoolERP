@@ -6,18 +6,23 @@ import { hasModule, SECTION_MODULE } from '../../shared/modules.js'
 const AuthContext = createContext(null)
 
 export function AuthProvider({ children }) {
-  const [state, setState] = useState({ loading: true, user: null, institute: null, desktop: false })
+  const [state, setState] = useState({ loading: true, user: null, institute: null, desktop: false, locked: null })
 
   const refresh = useCallback(() => api.get('/auth/me').then(
-    (data) => setState({ loading: false, user: data.user, institute: data.institute, desktop: Boolean(data.desktop) }),
-    () => setState((s) => ({ ...s, loading: false, user: null, institute: null }))
+    (data) => setState({ loading: false, user: data.user, institute: data.institute, desktop: Boolean(data.desktop), locked: null }),
+    (error) => setState((s) => ({ ...s, loading: false, user: null, institute: null, locked: error.locked ? error.message : null }))
   ), [])
 
   useEffect(() => {
     refresh()
     const onExpired = () => setState((s) => ({ ...s, user: null }))
+    const onLocked = (e) => setState((s) => ({ ...s, locked: e.detail }))
     window.addEventListener('session-expired', onExpired)
-    return () => window.removeEventListener('session-expired', onExpired)
+    window.addEventListener('app-locked', onLocked)
+    return () => {
+      window.removeEventListener('session-expired', onExpired)
+      window.removeEventListener('app-locked', onLocked)
+    }
   }, [refresh])
 
   const login = async (loginId, password, as) => {
@@ -67,8 +72,9 @@ export const ACCESS = {
   // Super admin only:
   admins: [],
   activity: [],
+  desktopApps: [],
 }
-const SUPER_ONLY = ['admins', 'activity']
+const SUPER_ONLY = ['admins', 'activity', 'desktopApps']
 
 export const isAdmin = (user) => user?.role === 'admin' || user?.role === 'superadmin'
 // A section also needs its module in the institute's plan (user.modules, null = all).

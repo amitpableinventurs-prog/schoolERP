@@ -6,7 +6,7 @@ import { isAdmin, useAuth } from '../../lib/auth.jsx'
 import { CertificateDoc } from '../../components/Certificate.jsx'
 import { Async, Badge, Confirm, Empty, Field, Modal, PageHead, useAction, useApi } from '../../components/ui.jsx'
 
-const KIND_LABEL = { bonafide: 'Bonafide', character: 'Character', transfer: 'Transfer / Leaving', merit: 'Merit', participation: 'Participation', completion: 'Course completion', custom: 'Custom' }
+const KIND_LABEL = { bonafide: 'Bonafide', character: 'Character', transfer: 'Transfer / Leaving', merit: 'Merit', appreciation: 'Appreciation', participation: 'Participation', completion: 'Course completion', custom: 'Custom' }
 const STYLE_LABEL = { classic: 'Classic (navy & gold)', royal: 'Royal (maroon & gold)', modern: 'Modern (colour band)', elegant: 'Elegant (green & gold)' }
 const BLANK = { name: '', kind: 'custom', code: '', heading: '', body: '', style: 'classic', orientation: 'portrait', signatories: ['Class Teacher', 'Principal'], active: true }
 

@@ -495,7 +495,7 @@ export const ActivityLog = model('ActivityLog', new Schema({
 
 // Template text uses {{placeholders}} (see CERT_FIELDS in routes/certificates.js);
 // it is filled in and frozen on each certificate when issued.
-export const CERT_KINDS = ['bonafide', 'character', 'transfer', 'merit', 'participation', 'completion', 'custom']
+export const CERT_KINDS = ['bonafide', 'character', 'transfer', 'merit', 'appreciation', 'participation', 'completion', 'custom']
 export const CERT_STYLES = ['classic', 'royal', 'modern', 'elegant']
 
 export const CertificateTemplate = model('CertificateTemplate', new Schema({

@@ -148,23 +148,50 @@ export const Payment = model('Payment', new Schema({
   collectedBy: ref('User'),
 }, opts))
 
+// Bands are matched from the highest `min` down; `point` is the grade point for GPA/CGPA.
+export const GradeScale = model('GradeScale', new Schema({
+  name: { type: String, required: true, trim: true },
+  appliesTo: [{ type: String, enum: INSTITUTION_TYPES }], // default scale for these wings
+  passPercent: { type: Number, default: 33 },
+  bands: [{ min: Number, grade: String, point: Number, remark: String, _id: false }],
+}, opts))
+
 export const Exam = model('Exam', new Schema({
   name: { type: String, required: true },
   batch: { ...ref('Batch'), required: true },
   type: { type: String, enum: ['unit', 'mid', 'final', 'mock'], default: 'unit' },
-  date: String,
-  subjects: [{ name: String, maxMarks: { type: Number, default: 100 } }],
+  term: String, // e.g. "Term 1", "Semester 3"
+  date: String, // first paper's date (kept in sync with the schedule)
+  gradeScale: ref('GradeScale'),
+  // Each subject is one paper of the date sheet.
+  subjects: [{
+    name: String,
+    maxMarks: { type: Number, default: 100 },
+    passMarks: Number, // empty = the grade scale's pass %
+    date: String,
+    start: String,
+    end: String,
+    room: String,
+    invigilator: ref('Staff'),
+  }],
+  instructions: String,
+  admitCards: { type: Boolean, default: false }, // released to the student portal
+  holdOnDues: { type: Boolean, default: false }, // withhold admit cards while fees are overdue
+  admitAllowed: [ref('Student')], // let these students through despite dues
   published: { type: Boolean, default: false },
 }, opts))
 
 export const Mark = model('Mark', new Schema({
   exam: { ...ref('Exam'), required: true },
   student: { ...ref('Student'), required: true },
-  scores: [{ subject: String, marks: Number, _id: false }],
+  scores: [{ subject: String, marks: Number, absent: Boolean, _id: false }],
   total: Number,
   max: Number,
   percent: Number,
   grade: String,
+  gpa: Number,
+  result: { type: String, enum: ['pass', 'fail', 'absent'] },
+  failedIn: [String],
   rank: Number,
   remark: String,
 }, opts).index({ exam: 1, student: 1 }, { unique: true }))
@@ -184,6 +211,9 @@ export const Test = model('Test', new Schema({
   topic: String,
   durationMin: { type: Number, default: 30 },
   negativeMarks: { type: Number, default: 0 },
+  // Optional window: students can start only between these times.
+  startAt: Date,
+  endAt: Date,
   questions: [questionSchema],
   status: { type: String, enum: ['draft', 'published', 'closed'], default: 'draft' },
   aiGenerated: { type: Boolean, default: false },

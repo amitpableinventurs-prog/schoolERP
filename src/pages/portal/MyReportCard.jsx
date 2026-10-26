@@ -1,6 +1,7 @@
 import { Link, useParams } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
-import { PrintBar, ReportCardDoc } from '../../components/Documents.jsx'
+import { PrintBar } from '../../components/Documents.jsx'
+import { ReportCardDoc } from '../../components/ExamDocs.jsx'
 import { Async, useApi } from '../../components/ui.jsx'
 import { useScope } from '../../lib/scope.jsx'
 

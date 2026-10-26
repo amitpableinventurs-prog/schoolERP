@@ -10,6 +10,7 @@ import { startScheduler } from './automation.js'
 import { aiEnabled } from './ai.js'
 import coreRoutes from './routes/core.js'
 import academicRoutes from './routes/academics.js'
+import examRoutes from './routes/exams.js'
 import officeRoutes from './routes/office.js'
 import portalRoutes from './routes/portal.js'
 import parentRoutes from './routes/parent.js'
@@ -72,6 +73,8 @@ if (!desktop) app.use('/api/gps', gpsPublic)
 app.use('/api', coreRoutes)
 app.use('/api/portal', requireAuth, portalRoutes)
 app.use('/api/parent', requireAuth, parentRoutes)
+// Examination before academics: its fixed paths (/exams/schedule…) must win over /exams/:id.
+app.use('/api', requireAuth, examRoutes)
 app.use('/api', requireAuth, academicRoutes)
 app.use('/api', requireAuth, officeRoutes)
 app.use('/api', requireAuth, lmsRoutes)

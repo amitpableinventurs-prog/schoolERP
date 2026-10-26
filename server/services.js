@@ -1,5 +1,5 @@
 import bcrypt from 'bcryptjs'
-import { Attendance, Batch, Course, CourseProgress, Exam, FeeInstallment, Mark, Payment, Setting, Staff, Student, TimetableSlot, User } from './models.js'
+import { Attendance, Batch, Course, CourseProgress, Exam, FeeInstallment, GradeScale, Mark, Payment, Setting, Staff, Student, TimetableSlot, User } from './models.js'
 import { getSettings } from './insights.js'
 import { config } from './config.js'
 import { addDays, escapeRegex, grade, ymd } from './util.js'
@@ -61,17 +61,90 @@ export async function recordPayment({ student, installment, amount, mode, paidOn
   })
 }
 
-// Recalculates totals, percentages, grades and ranks for every student in an exam.
+/* ── Grading ── */
+
+export const DEFAULT_GRADE_SCALES = [
+  {
+    name: 'CBSE 9-point (school)', appliesTo: ['school'], passPercent: 33,
+    bands: [
+      { min: 91, grade: 'A1', point: 10, remark: 'Outstanding' }, { min: 81, grade: 'A2', point: 9, remark: 'Excellent' },
+      { min: 71, grade: 'B1', point: 8, remark: 'Very good' }, { min: 61, grade: 'B2', point: 7, remark: 'Good' },
+      { min: 51, grade: 'C1', point: 6, remark: 'Above average' }, { min: 41, grade: 'C2', point: 5, remark: 'Average' },
+      { min: 33, grade: 'D', point: 4, remark: 'Pass' }, { min: 0, grade: 'E', point: 0, remark: 'Needs improvement' },
+    ],
+  },
+  {
+    name: 'UGC 10-point (college)', appliesTo: ['college'], passPercent: 40,
+    bands: [
+      { min: 90, grade: 'O', point: 10, remark: 'Outstanding' }, { min: 80, grade: 'A+', point: 9, remark: 'Excellent' },
+      { min: 70, grade: 'A', point: 8, remark: 'Very good' }, { min: 60, grade: 'B+', point: 7, remark: 'Good' },
+      { min: 50, grade: 'B', point: 6, remark: 'Above average' }, { min: 45, grade: 'C', point: 5, remark: 'Average' },
+      { min: 40, grade: 'P', point: 4, remark: 'Pass' }, { min: 0, grade: 'F', point: 0, remark: 'Fail' },
+    ],
+  },
+  {
+    name: 'Percentage grades (coaching)', appliesTo: ['coaching'], passPercent: 35,
+    bands: [
+      { min: 90, grade: 'A+', point: 10 }, { min: 80, grade: 'A', point: 9 }, { min: 70, grade: 'B+', point: 8 }, { min: 60, grade: 'B', point: 7 },
+      { min: 50, grade: 'C', point: 6 }, { min: 35, grade: 'D', point: 5 }, { min: 0, grade: 'F', point: 0 },
+    ],
+  },
+]
+
+export async function ensureGradeScales() {
+  if (!(await GradeScale.exists({}))) await GradeScale.insertMany(DEFAULT_GRADE_SCALES)
+}
+
+// One-time: exams graded before grade scales existed get scale grades, GPA and pass/fail.
+export async function regradeOldExams() {
+  const settings = await getSettings()
+  if (settings.migrations?.includes('grade-scales')) return
+  await ensureGradeScales()
+  for (const exam of await Exam.find({}, '_id').lean()) await recomputeExam(exam._id)
+  await Setting.updateOne({}, { $addToSet: { migrations: 'grade-scales' } })
+}
+
+// The exam's own scale, else the default scale of its wing, else the built-in grades.
+export async function scaleForExam(exam) {
+  if (exam.gradeScale) {
+    const own = await GradeScale.findById(exam.gradeScale._id || exam.gradeScale).lean()
+    if (own) return own
+  }
+  await ensureGradeScales()
+  const type = exam.batch?.type || (await Batch.findById(exam.batch, 'type').lean())?.type
+  const scale = await GradeScale.findOne({ appliesTo: type }).sort({ createdAt: 1 }).lean()
+  if (scale) return scale
+  const settings = await getSettings()
+  return { name: 'Default', passPercent: settings.passPercent ?? 35, bands: [] }
+}
+
+export function gradeBand(percent, scale) {
+  if (percent == null) return null
+  const bands = [...(scale?.bands || [])].sort((a, b) => b.min - a.min)
+  return bands.find((b) => percent >= b.min) || (bands.length ? bands[bands.length - 1] : { grade: grade(percent) })
+}
+
+// Pass mark of one paper: its own, else the scale's pass % of its maximum.
+export const passMarkOf = (subject, scale) => subject.passMarks ?? Math.ceil((subject.maxMarks * (scale?.passPercent ?? 35)) / 100)
+
+// Recalculates totals, percentages, grades, pass/fail and ranks for every student in an exam.
+// An absent paper counts as zero towards the total and fails that paper.
 export async function recomputeExam(examId) {
   const exam = await Exam.findById(examId).lean()
+  const scale = await scaleForExam(exam)
   const marks = await Mark.find({ exam: examId })
-  const maxBySubject = Object.fromEntries(exam.subjects.map((s) => [s.name, s.maxMarks]))
+  const bySubject = Object.fromEntries(exam.subjects.map((s) => [s.name, s]))
   for (const m of marks) {
-    const scored = m.scores.filter((s) => s.marks != null && maxBySubject[s.subject] != null)
-    m.total = scored.reduce((sum, s) => sum + Number(s.marks), 0)
-    m.max = scored.reduce((sum, s) => sum + maxBySubject[s.subject], 0)
+    const scored = m.scores.filter((s) => (s.marks != null || s.absent) && bySubject[s.subject])
+    m.total = scored.reduce((sum, s) => sum + (s.absent ? 0 : Number(s.marks)), 0)
+    m.max = scored.reduce((sum, s) => sum + bySubject[s.subject].maxMarks, 0)
     m.percent = m.max ? Math.round((m.total / m.max) * 1000) / 10 : null
-    m.grade = m.percent == null ? null : grade(m.percent)
+    const band = gradeBand(m.percent, scale)
+    m.grade = band?.grade ?? null
+    m.gpa = band?.point ?? null
+    m.failedIn = scored.filter((s) => s.absent || Number(s.marks) < passMarkOf(bySubject[s.subject], scale)).map((s) => s.subject)
+    const allAbsent = scored.length > 0 && scored.every((s) => s.absent)
+    m.result = !scored.length ? undefined : allAbsent ? 'absent' : m.failedIn.length || m.percent < scale.passPercent ? 'fail' : 'pass'
   }
   const ranked = [...marks].filter((m) => m.percent != null).sort((a, b) => b.percent - a.percent)
   ranked.forEach((m, i) => {

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Plus, Save, Sparkles, Trash2 } from 'lucide-react'
 import { api } from '../../lib/api.js'
+import { fromLocalInput, toLocalInput } from '../../lib/format.js'
 import { AiNotice, BatchSelect, Field, Loading, Modal, useAction, useAiStatus, useBatches, useToast } from '../../components/ui.jsx'
 
 const LETTERS = ['A', 'B', 'C', 'D']
@@ -82,6 +83,8 @@ export default function TestEditor() {
           <Field label="Topic"><input className="input" value={test.topic || ''} onChange={set('topic')} /></Field>
           <Field label="Duration (minutes)"><input className="input" type="number" min="1" value={test.durationMin} onChange={set('durationMin')} /></Field>
           <Field label="Negative marks per wrong answer"><input className="input" type="number" min="0" step="0.25" value={test.negativeMarks} onChange={set('negativeMarks')} /></Field>
+          <Field label="Opens at" hint="Empty = as soon as it is published."><input className="input" type="datetime-local" value={toLocalInput(test.startAt)} onChange={(e) => setTest({ ...test, startAt: fromLocalInput(e.target.value) })} /></Field>
+          <Field label="Closes at" hint="No new starts after this; running attempts end here."><input className="input" type="datetime-local" value={toLocalInput(test.endAt)} onChange={(e) => setTest({ ...test, endAt: fromLocalInput(e.target.value) })} /></Field>
         </div>
       </div>
 

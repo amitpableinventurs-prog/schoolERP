@@ -7,6 +7,7 @@ import { attendanceSummary, installmentStatus } from '../insights.js'
 import { answerDoubt, aiEnabled } from '../ai.js'
 import { coursesForStudent, leaveDates } from '../services.js'
 import { reportCard } from './academics.js'
+import { admitCardData, loadExamForCards } from './exams.js'
 import { receipt } from './office.js'
 import { myTransport } from './transport.js'
 import { myBusLive } from './gps.js'
@@ -121,6 +122,29 @@ views.get('/results/:exam', asyncHandler(async (req, res) => {
   res.json(await reportCard(exam._id, req.student._id))
 }))
 
+// Exams with a date sheet (upcoming or just finished), each with the admit card's status.
+views.get('/admit-cards', asyncHandler(async (req, res) => {
+  const since = addDays(ymd(), -15)
+  const exams = await Exam.find({ batch: req.student.batch._id, 'subjects.date': { $gte: since } }).populate('subjects.invigilator', 'name').sort({ date: 1 }).lean()
+  const out = []
+  for (const exam of exams) {
+    const { students } = await admitCardData(exam, [req.student._id])
+    out.push({
+      exam: { ...exam, admitAllowed: undefined, subjects: [...exam.subjects].sort((a, b) => `${a.date}${a.start}`.localeCompare(`${b.date}${b.start}`)) },
+      admit: !exam.admitCards ? 'not-released' : students[0]?.held ? 'held' : 'ready',
+    })
+  }
+  res.json(out)
+}))
+
+views.get('/admit-cards/:exam', asyncHandler(async (req, res) => {
+  const exam = await loadExamForCards({ _id: req.params.exam, batch: req.student.batch._id, admitCards: true })
+  if (!exam) throw httpError(404, 'The admit card has not been released yet.')
+  const data = await admitCardData(exam, [req.student._id])
+  if (data.students[0]?.held) throw httpError(403, 'Your admit card is on hold because of overdue fees. Please contact the accounts office.')
+  res.json({ ...data, exam: { ...exam, admitAllowed: undefined } })
+}))
+
 views.get('/tests', asyncHandler(async (req, res) => {
   const tests = await Test.find({ batch: req.student.batch._id, status: { $in: ['published', 'closed'] } }, '-questions').sort({ createdAt: -1 }).lean()
   const attempts = await Attempt.find({ student: req.student._id }).lean()
@@ -132,10 +156,15 @@ views.get('/tests', asyncHandler(async (req, res) => {
 router.post('/tests/:id/start', asyncHandler(async (req, res) => {
   const test = await Test.findOne({ _id: req.params.id, batch: req.student.batch._id, status: 'published' }).lean()
   if (!test) throw httpError(404, 'This test is not available.')
+  const now = new Date()
+  if (test.startAt && now < test.startAt) throw httpError(403, `This test opens at ${test.startAt.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' })}.`)
   let attempt = await Attempt.findOne({ test: test._id, student: req.student._id })
   if (attempt?.submittedAt) throw httpError(409, 'You have already submitted this test.')
-  if (!attempt) attempt = await Attempt.create({ test: test._id, student: req.student._id, startedAt: new Date(), answers: [] })
-  const endsAt = new Date(attempt.startedAt.getTime() + test.durationMin * 60_000)
+  if (!attempt && test.endAt && now > test.endAt) throw httpError(403, 'This test has closed.')
+  if (!attempt) attempt = await Attempt.create({ test: test._id, student: req.student._id, startedAt: now, answers: [] })
+  // The timer stops at the duration or when the test window closes, whichever is first.
+  let endsAt = new Date(attempt.startedAt.getTime() + test.durationMin * 60_000)
+  if (test.endAt && test.endAt < endsAt) endsAt = test.endAt
   res.json({
     test: { _id: test._id, title: test.title, subject: test.subject, durationMin: test.durationMin, negativeMarks: test.negativeMarks, questions: test.questions.map((q) => ({ q: q.q, options: q.options, marks: q.marks })) },
     endsAt,

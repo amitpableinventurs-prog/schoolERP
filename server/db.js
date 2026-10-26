@@ -4,7 +4,7 @@ import { config } from './config.js'
 import { Setting, User } from './models.js'
 import { ensureRules } from './automation.js'
 import { seedDemoData } from './seed.js'
-import { ensureParentLogins, ensureStaffWings, ensureSuperAdmin } from './services.js'
+import { ensureParentLogins, ensureStaffWings, ensureSuperAdmin, regradeOldExams } from './services.js'
 import { modelOf, runWithTenant, tenantConnection } from './tenancy.js'
 import { collectionsFor } from '../shared/modules.js'
 
@@ -32,6 +32,7 @@ export async function initTenantData({ admin, demo = false, instituteName } = {}
   await ensureSuperAdmin()
   await ensureStaffWings()
   await backfillUpdatedAt()
+  await regradeOldExams()
 }
 
 // Desktop sync reads changes by updatedAt, so every synced record needs one.

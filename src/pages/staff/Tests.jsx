@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { BarChart3, Pencil, Plus, Sparkles, Trash2 } from 'lucide-react'
 import { api, qs } from '../../lib/api.js'
-import { fmtDate } from '../../lib/format.js'
+import { fmtDate, fmtDateTime } from '../../lib/format.js'
 import { Async, Badge, BatchSelect, Confirm, Empty, PageHead, StatusBadge, useAction, useApi } from '../../components/ui.jsx'
 
 export default function Tests() {
@@ -35,7 +35,7 @@ export default function Tests() {
                     </td>
                     <td>{t.batch?.name}</td>
                     <td className="num">{t.questionCount}</td>
-                    <td className="num">{t.durationMin} min</td>
+                    <td className="num">{t.durationMin} min{(t.startAt || t.endAt) && <div className="cell-sub nowrap">{t.startAt ? fmtDateTime(t.startAt) : 'now'} – {t.endAt ? fmtDateTime(t.endAt) : 'open'}</div>}</td>
                     <td className="num">{t.attempts}</td>
                     <td className="num">{t.avgScore ?? '—'}</td>
                     <td><StatusBadge value={t.status} /></td>

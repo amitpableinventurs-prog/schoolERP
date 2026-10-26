@@ -1,7 +1,7 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
-  Award, Bell, BookOpen, Bot, Brain, Bus, CalendarDays, CalendarX2, ChevronDown, ChevronLeft, ClipboardCheck, ClipboardList, Gauge,
+  Award, Bell, BookOpen, Bot, Brain, Bus, CalendarCheck, CalendarDays, CalendarX2, ChevronDown, ChevronLeft, ClipboardCheck, ClipboardList, Gauge,
   Cloud, CloudOff, GraduationCap, IndianRupee, KeyRound, RefreshCw, LayoutDashboard, LayoutGrid, LogOut, Menu, MonitorPlay, Moon, Plus, Search, Sun, Timer, Users2,
 } from 'lucide-react'
 import { can, useAuth, WING_LABEL } from '../lib/auth.jsx'
@@ -17,6 +17,7 @@ const PORTAL_MENU = [
     { to: '/', label: 'Home', icon: LayoutDashboard, end: true },
     { to: '/my/attendance', label: 'Attendance', icon: ClipboardCheck, mod: 'academics' },
     { to: '/my/timetable', label: 'Timetable', icon: CalendarDays, mod: 'academics' },
+    { to: '/my/exams', label: 'Exams & Admit Card', icon: CalendarCheck, mod: 'academics' },
     { to: '/my/results', label: 'Results', icon: GraduationCap, mod: 'academics' },
     { to: '/my/tests', label: 'Online Tests', icon: Timer, mod: 'onlineExams' },
     { to: '/my/courses', label: 'Courses', icon: MonitorPlay, mod: 'lms' },
@@ -42,6 +43,7 @@ function parentMenu(user, childId) {
     { to: base, label: 'Overview', icon: LayoutDashboard, end: true },
     { to: `${base}/attendance`, label: 'Attendance', icon: ClipboardCheck, mod: 'academics' },
     { to: `${base}/timetable`, label: 'Timetable', icon: CalendarDays, mod: 'academics' },
+    { to: `${base}/exams`, label: 'Exams & Admit Card', icon: CalendarCheck, mod: 'academics' },
     { to: `${base}/results`, label: 'Results', icon: GraduationCap, mod: 'academics' },
     { to: `${base}/tests`, label: 'Online Tests', icon: Timer, mod: 'onlineExams' },
     { to: `${base}/courses`, label: 'Courses', icon: MonitorPlay, mod: 'lms' },

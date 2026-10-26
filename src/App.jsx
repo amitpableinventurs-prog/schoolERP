@@ -22,6 +22,12 @@ const Staff = {
   Exams: page(() => import('./pages/staff/Exams.jsx')),
   ExamMarks: page(() => import('./pages/staff/ExamMarks.jsx')),
   ReportCard: page(() => import('./pages/staff/ReportCardPage.jsx')),
+  ReportCards: page(() => import('./pages/staff/ReportCards.jsx')),
+  ExamSchedule: page(() => import('./pages/staff/ExamSchedule.jsx')),
+  GradeScales: page(() => import('./pages/staff/GradeScales.jsx')),
+  AdmitCards: page(() => import('./pages/staff/AdmitCards.jsx')),
+  AdmitCardsIndex: page(() => import('./pages/staff/AdmitCards.jsx').then((m) => ({ default: m.AdmitCardsIndex }))),
+  TermReport: page(() => import('./pages/staff/TermReport.jsx')),
   Tests: page(() => import('./pages/staff/Tests.jsx')),
   TestEditor: page(() => import('./pages/staff/TestEditor.jsx')),
   TestResults: page(() => import('./pages/staff/TestResults.jsx')),
@@ -68,6 +74,8 @@ const Portal = {
   Timetable: page(() => import('./pages/portal/MyTimetable.jsx')),
   Results: page(() => import('./pages/portal/MyResults.jsx')),
   ReportCard: page(() => import('./pages/portal/MyReportCard.jsx')),
+  Exams: page(() => import('./pages/portal/MyExams.jsx')),
+  AdmitCard: page(() => import('./pages/portal/MyExams.jsx').then((m) => ({ default: m.MyAdmitCard }))),
   Tests: page(() => import('./pages/portal/MyTests.jsx')),
   TakeTest: page(() => import('./pages/portal/TakeTest.jsx')),
   TestReview: page(() => import('./pages/portal/TestReview.jsx')),
@@ -116,7 +124,13 @@ function StaffRoutes() {
         <Route path="attendance" element={g('attendance', <S.Attendance />)} />
         <Route path="timetable" element={g('timetable', <S.Timetable />)} />
         <Route path="exams" element={g('exams', <S.Exams />)} />
+        <Route path="exams/schedule" element={g('exams', <S.ExamSchedule />)} />
+        <Route path="exams/admit-cards" element={g('exams', <S.AdmitCardsIndex />)} />
+        <Route path="exams/grades" element={g('exams', <S.GradeScales />)} />
+        <Route path="exams/term-report" element={g('exams', <S.TermReport />)} />
         <Route path="exams/:id" element={g('exams', <S.ExamMarks />)} />
+        <Route path="exams/:id/admit-cards" element={g('exams', <S.AdmitCards />)} />
+        <Route path="exams/:id/report-cards" element={g('exams', <S.ReportCards />)} />
         <Route path="exams/:id/report/:student" element={g('students', <S.ReportCard />)} />
         <Route path="tests" element={g('tests', <S.Tests />)} />
         <Route path="tests/new" element={g('tests', <S.TestEditor />)} />
@@ -174,6 +188,8 @@ function PortalRoutes() {
         <Route path="my/timetable" element={<P.Timetable />} />
         <Route path="my/results" element={<P.Results />} />
         <Route path="my/results/:exam" element={<P.ReportCard />} />
+        <Route path="my/exams" element={<P.Exams />} />
+        <Route path="my/exams/:exam/admit-card" element={<P.AdmitCard />} />
         <Route path="my/tests" element={<P.Tests />} />
         <Route path="my/tests/:id/take" element={<P.TakeTest />} />
         <Route path="my/tests/:id/review" element={<P.TestReview />} />
@@ -211,6 +227,8 @@ function ParentRoutes() {
           <Route path="timetable" element={<P.Timetable />} />
           <Route path="results" element={<P.Results />} />
           <Route path="results/:exam" element={<P.ReportCard />} />
+          <Route path="exams" element={<P.Exams />} />
+          <Route path="exams/:exam/admit-card" element={<P.AdmitCard />} />
           <Route path="tests" element={<P.Tests />} />
           <Route path="tests/:id/review" element={<P.TestReview />} />
           <Route path="courses" element={<P.Courses />} />

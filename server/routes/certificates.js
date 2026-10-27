@@ -2,10 +2,12 @@
 // printable copies, revocation, and a public verification lookup.
 import { Router } from 'express'
 import { allow } from '../auth.js'
-import { Certificate, CertificateTemplate, CERT_KINDS, CERT_STYLES, Student } from '../models.js'
+import { Certificate, CertificateTemplate, CERT_KINDS, CERT_STYLES, Setting, Student } from '../models.js'
+import { config } from '../config.js'
 import { feeSummaryByStudent, getSettings } from '../insights.js'
 import { asyncHandler, escapeRegex, httpError, pick, ymd } from '../util.js'
 import { assertBatch, batchFilter, batchInScope, scopeOf } from '../scope.js'
+import { seriesTag } from '../desktop.js'
 
 const router = Router()
 const issuers = allow('teacher', 'accountant')
@@ -23,7 +25,7 @@ export const CERT_FIELDS = {
 }
 export const EXTRA_FIELDS = ['purpose', 'conduct', 'reason', 'achievement', 'event', 'eventDate', 'course', 'remarks']
 
-const KIND_CODE = { bonafide: 'BON', character: 'CHR', transfer: 'TC', merit: 'MER', participation: 'PAR', completion: 'CMP', custom: 'CRT' }
+const KIND_CODE = { bonafide: 'BON', character: 'CHR', transfer: 'TC', merit: 'MER', appreciation: 'APR', participation: 'PAR', completion: 'CMP', custom: 'CRT' }
 
 const DEFAULT_TEMPLATES = [
   {
@@ -47,6 +49,11 @@ const DEFAULT_TEMPLATES = [
     body: 'This certificate is proudly presented to\n{{name}}\nof {{class}} for securing {{achievement}} in {{event}}.\n\nWe appreciate {{his}} hard work and dedication.',
   },
   {
+    name: 'Certificate of Appreciation', kind: 'appreciation', heading: 'Certificate of Appreciation', style: 'elegant', orientation: 'landscape',
+    signatories: ['Class Teacher', 'Principal'],
+    body: 'This certificate is proudly presented to\n{{name}}\nof {{class}} in appreciation of {{achievement}}.\n\n{{remarks}}\n\nWe are proud of {{his}} efforts and wish {{him}} continued success.',
+  },
+  {
     name: 'Certificate of Participation', kind: 'participation', heading: 'Certificate of Participation', style: 'modern', orientation: 'landscape',
     signatories: ['Event Co-ordinator', 'Principal'],
     body: 'This is to certify that\n{{name}}\nof {{class}} has actively participated in {{event}} held on {{eventDate}}.\n\nWe thank {{him}} for the enthusiasm shown.',
@@ -60,9 +67,23 @@ const DEFAULT_TEMPLATES = [
 // {{him}} is accepted too (him / her).
 CERT_FIELDS.him = 'him / her'
 
+// Templates added in later versions reach existing institutes once (a deleted one stays deleted).
+const ADDED_LATER = [{ kind: 'appreciation', migration: 'cert-appreciation' }]
+
 async function ensureDefaults() {
-  if (await CertificateTemplate.exists({})) return
-  await CertificateTemplate.insertMany(DEFAULT_TEMPLATES.map((t) => ({ ...t, code: KIND_CODE[t.kind] })))
+  if (!(await CertificateTemplate.exists({}))) {
+    await CertificateTemplate.insertMany(DEFAULT_TEMPLATES.map((t) => ({ ...t, code: KIND_CODE[t.kind] })))
+    await Setting.updateOne({}, { $addToSet: { migrations: { $each: ADDED_LATER.map((a) => a.migration) } } })
+    return
+  }
+  // Desktop apps get these templates through sync instead of making their own copy.
+  if (config.mode === 'desktop') return
+  const done = (await Setting.findOne({}, 'migrations').lean())?.migrations || []
+  for (const { kind, migration } of ADDED_LATER.filter((a) => !done.includes(a.migration))) {
+    const t = DEFAULT_TEMPLATES.find((d) => d.kind === kind)
+    if (!(await CertificateTemplate.exists({ kind }))) await CertificateTemplate.create({ ...t, code: KIND_CODE[kind] })
+    await Setting.updateOne({}, { $addToSet: { migrations: migration } })
+  }
 }
 
 const fmt = (s) => {
@@ -91,8 +112,8 @@ export function fillTemplate(text, student, settings, extras, issuedOn) {
 }
 
 async function nextSerials(code, count) {
-  const prefix = `${code}-${ymd().slice(0, 4)}-`
-  const last = await Certificate.findOne({ serialNo: { $regex: `^${escapeRegex(prefix)}` } }).sort({ serialNo: -1 }).lean()
+  const prefix = `${code}-${ymd().slice(0, 4)}-${seriesTag()}`
+  const last = await Certificate.findOne({ serialNo: { $regex: `^${escapeRegex(prefix)}\\d+$` } }).sort({ serialNo: -1 }).lean()
   const start = last ? Number(last.serialNo.slice(prefix.length)) + 1 : 1
   return Array.from({ length: count }, (_, i) => `${prefix}${String(start + i).padStart(5, '0')}`)
 }

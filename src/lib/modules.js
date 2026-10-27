@@ -1,6 +1,6 @@
 import {
-  Activity, Award, BookOpen, BookText, Bot, Bus, CalendarDays, CalendarX2, ChartPie, ClipboardCheck, ClipboardList, Contact, FileQuestion, FileText,
-  GraduationCap, HandCoins, IndianRupee, LayoutDashboard, Layers, Map, Megaphone, MessageCircleQuestion, MonitorPlay, Receipt, Route as RouteIcon,
+  Activity, Award, BookOpen, BookText, Bot, Bus, CalendarCheck, CalendarDays, FileStack, IdCard, Scale, CalendarX2, ChartPie, ClipboardCheck, ClipboardList, Contact, FileQuestion, FileText,
+  GraduationCap, HandCoins, IndianRupee, LayoutDashboard, Layers, Map, Megaphone, MessageCircleQuestion, Monitor, MonitorPlay, Navigation, Receipt, Route as RouteIcon,
   Settings, ScrollText, ShieldAlert, ShieldCheck, SlidersHorizontal, Timer, UserCog, Users, Wallet, Workflow,
 } from 'lucide-react'
 import { can } from './auth.jsx'
@@ -13,6 +13,7 @@ const M = {
   insights: { to: '/insights', label: 'Smart Insights', icon: ShieldAlert, section: 'insights', ai: true, cat: 'Students', color: 'red' },
   admins: { to: '/admins', label: 'Admins & Wings', icon: ShieldCheck, section: 'admins', cat: 'Admin', color: 'slate' },
   activity: { to: '/activity', label: 'Activity Log', icon: Activity, section: 'activity', cat: 'Admin', color: 'teal' },
+  desktopApps: { to: '/desktop-apps', label: 'Desktop Apps', icon: Monitor, section: 'desktopApps', cat: 'Admin', color: 'indigo' },
   fees: { to: '/fees', label: 'Fees & Collection', icon: IndianRupee, section: 'fees', cat: 'Finance', color: 'green' },
   transportFees: { to: '/transport/fees', label: 'Transport Fees', icon: Receipt, section: 'transportFees', cat: 'Finance', color: 'orange' },
   finance: { to: '/finance', label: 'Finance Overview', icon: ChartPie, section: 'finance', end: true, cat: 'Finance', color: 'blue' },
@@ -26,7 +27,11 @@ const M = {
   leaves: { to: '/leaves', label: 'Leave Requests', icon: CalendarX2, section: 'leaves', count: 'leaves', cat: 'Students', color: 'pink' },
   attendance: { to: '/attendance', label: 'Attendance', icon: ClipboardCheck, section: 'attendance', cat: 'Academics', color: 'orange' },
   timetable: { to: '/timetable', label: 'Timetable', icon: CalendarDays, section: 'timetable', cat: 'Academics', color: 'green' },
-  exams: { to: '/exams', label: 'Exams & Results', icon: GraduationCap, section: 'exams', cat: 'Academics', color: 'blue' },
+  exams: { to: '/exams', label: 'Exams & Marks Entry', icon: GraduationCap, section: 'exams', end: true, cat: 'Academics', color: 'blue' },
+  examSchedule: { to: '/exams/schedule', label: 'Exam Scheduling', icon: CalendarCheck, section: 'exams', cat: 'Academics', color: 'teal' },
+  grades: { to: '/exams/grades', label: 'Grade System', icon: Scale, section: 'exams', cat: 'Academics', color: 'slate' },
+  admitCards: { to: '/exams/admit-cards', label: 'Admit Cards', icon: IdCard, section: 'exams', cat: 'Academics', color: 'orange' },
+  termReport: { to: '/exams/term-report', label: 'Report Cards', icon: FileStack, section: 'exams', cat: 'Academics', color: 'green' },
   materials: { to: '/materials', label: 'Study Material', icon: BookOpen, section: 'materials', cat: 'Academics', color: 'teal' },
   doubts: { to: '/doubts', label: 'Doubts', icon: MessageCircleQuestion, section: 'doubts', cat: 'Academics', color: 'pink' },
   tests: { to: '/tests', label: 'Online Tests', icon: Timer, section: 'tests', cat: 'Academics', color: 'violet' },
@@ -34,6 +39,7 @@ const M = {
   lms: { to: '/lms', label: 'Courses (LMS)', icon: MonitorPlay, section: 'lms', cat: 'Academics', color: 'red' },
   assignments: { to: '/assignments', label: 'Assignments', icon: ClipboardList, section: 'assignments', cat: 'Academics', color: 'indigo' },
   transport: { to: '/transport', label: 'Transport Dashboard', icon: Bus, section: 'transport', end: true, cat: 'Operations', color: 'orange' },
+  transportLive: { to: '/transport/live', label: 'Live Bus Tracking', icon: Navigation, section: 'transport', cat: 'Operations', color: 'green' },
   vehicles: { to: '/transport/vehicles', label: 'Vehicles', icon: Bus, section: 'transport', cat: 'Operations', color: 'slate' },
   routes: { to: '/transport/routes', label: 'Routes & Stops', icon: RouteIcon, section: 'transport', cat: 'Operations', color: 'teal' },
   transportStudents: { to: '/transport/assignments', label: 'Transport Students', icon: Map, section: 'transport', cat: 'Operations', color: 'blue' },
@@ -50,16 +56,16 @@ const M = {
 // Sidebar: sections of links; an item with `children` is a collapsible group.
 export const STAFF_MENU = [
   { title: 'Main Navigation', items: [M.dashboard, M.assistant, M.insights] },
-  { title: 'Super Admin', items: [M.admins, M.activity] },
+  { title: 'Super Admin', items: [M.admins, M.activity, M.desktopApps] },
   { title: 'Management', items: [
     { label: 'Finance & Fees', icon: IndianRupee, children: [M.finance, M.fees, M.transportFees, M.ledger] },
     { label: 'Payroll', icon: Wallet, children: [M.payroll, M.salaryStructures, M.advances] },
     { label: 'Student Information', icon: Users, children: [M.students, M.batches, M.leaves] },
-    { label: 'Academics', icon: GraduationCap, children: [M.attendance, M.timetable, M.exams, M.materials, M.doubts] },
-    { label: 'Online Examinations', icon: Timer, children: [M.tests, M.papers] },
+    { label: 'Academics', icon: GraduationCap, children: [M.attendance, M.timetable, M.materials, M.doubts] },
+    { label: 'Examination', icon: CalendarCheck, children: [M.examSchedule, M.exams, M.tests, M.papers, M.grades, M.termReport, M.admitCards] },
     { label: 'Learning (LMS)', icon: MonitorPlay, children: [M.lms, M.assignments] },
     { label: 'Certificates', icon: Award, children: [M.certificates, M.certTemplates] },
-    { label: 'Transport', icon: Bus, children: [M.transport, M.vehicles, M.routes, M.transportStudents, M.transportAttendance] },
+    { label: 'Transport', icon: Bus, children: [M.transport, M.transportLive, M.vehicles, M.routes, M.transportStudents, M.transportAttendance] },
     { label: 'Front Office', icon: Contact, children: [M.leads, M.notices] },
     { label: 'Human Resource', icon: UserCog, children: [M.staff, M.myPayslips] },
     { label: 'System', icon: Settings, children: [M.automation, M.settings] },

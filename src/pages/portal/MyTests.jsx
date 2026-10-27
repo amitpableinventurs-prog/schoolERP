@@ -21,6 +21,7 @@ export default function MyTests() {
                   {done ? <Badge tone="good">Done</Badge> : t.status === 'closed' ? <Badge>Closed</Badge> : <Badge tone="warn">Pending</Badge>}
                 </div>
                 <div className="row small text-2"><Timer size={14} /> {t.durationMin} min{t.negativeMarks ? ` · −${t.negativeMarks} per wrong answer` : ''}</div>
+                {(t.startAt || t.endAt) && <div className="small text-2">Window: {t.startAt ? fmtDateTime(t.startAt) : 'now'} – {t.endAt ? fmtDateTime(t.endAt) : 'open'}</div>}
                 {done ? (
                   <div className="row between">
                     <span>Score <strong>{t.attempt.score} / {t.attempt.total}</strong><div className="small muted">{fmtDateTime(t.attempt.submittedAt)}</div></span>
@@ -28,6 +29,10 @@ export default function MyTests() {
                   </div>
                 ) : t.status === 'published' && readOnly ? (
                   <span className="small muted">Not attempted yet.</span>
+                ) : t.status === 'published' && !t.attempt && t.startAt && new Date(t.startAt) > new Date() ? (
+                  <span className="small muted">Opens {fmtDateTime(t.startAt)}</span>
+                ) : t.status === 'published' && !t.attempt && t.endAt && new Date(t.endAt) < new Date() ? (
+                  <span className="small muted">The test window has closed.</span>
                 ) : t.status === 'published' ? (
                   <Link className="btn btn-primary" to={to(`tests/${t._id}/take`)}>{t.attempt ? 'Resume test' : 'Start test'}</Link>
                 ) : <span className="small muted">This test is closed.</span>}

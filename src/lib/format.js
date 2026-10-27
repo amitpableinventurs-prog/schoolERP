@@ -103,3 +103,14 @@ export const monthName = (m) => {
   const [y, mo] = m.split('-').map(Number)
   return new Date(y, mo - 1, 1).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })
 }
+
+// <input type="datetime-local"> works in local time without a zone; the API stores ISO dates.
+export const toLocalInput = (d) => {
+  if (!d) return ''
+  const x = new Date(d)
+  return new Date(x.getTime() - x.getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
+}
+export const fromLocalInput = (s) => (s ? new Date(s).toISOString() : null)
+
+export const weekday = (date) => DAYS[((new Date(`${date}T00:00:00`).getDay() + 6) % 7) + 1]
+export const timeRange = (p) => (p.start ? `${p.start}${p.end ? `–${p.end}` : ''}` : '—')

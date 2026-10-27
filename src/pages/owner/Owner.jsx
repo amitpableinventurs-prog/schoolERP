@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Link, Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Building2, CheckCircle2, Copy, Crown, Download, Globe, KeyRound, LogOut, Monitor, Plus, RefreshCw, ShieldOff, XCircle } from 'lucide-react'
+import { ArrowLeft, Building2, CheckCircle2, Crown, Download, Globe, KeyRound, LogOut, Monitor, Plus, RefreshCw, XCircle } from 'lucide-react'
 import { api } from '../../lib/api.js'
 import { fmtDate, fmtDateTime, timeAgo } from '../../lib/format.js'
-import { ALL_MODULES, PLATFORM_MODULES, moduleLabel } from '../../../shared/modules.js'
-import { Async, Badge, Empty, Field, Loading, Modal, PageHead, StatTile, useAction, useApi, useToast } from '../../components/ui.jsx'
+import { ALL_MODULES } from '../../../shared/modules.js'
+import { Async, Badge, Field, Loading, Modal, PageHead, StatTile, useAction, useApi } from '../../components/ui.jsx'
+import { DesktopKeyForm, DesktopKeyTable, ModuleChecks } from '../../components/DesktopKeys.jsx'
 
 // Owner console (/owner): the provider's control panel over every client institute.
 export default function OwnerApp() {
@@ -66,22 +67,6 @@ function OwnerLogin({ onDone }) {
         <Field label="Password"><input className="input" type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} autoComplete="current-password" required /></Field>
         <button className="btn btn-primary" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
       </form>
-    </div>
-  )
-}
-
-function ModuleChecks({ value, onChange, allowed = ALL_MODULES }) {
-  const set = new Set(value)
-  const toggle = (key) => onChange(PLATFORM_MODULES.map((m) => m.key).filter((k) => (k === key ? !set.has(k) : set.has(k))))
-  return (
-    <div className="module-checks">
-      <div className="small muted full">Always included: dashboard, students, classes, staff, notices, settings, admins, activity log.</div>
-      {PLATFORM_MODULES.filter((m) => allowed.includes(m.key)).map((m) => (
-        <label key={m.key} className="check module-check">
-          <input type="checkbox" checked={set.has(m.key)} onChange={() => toggle(m.key)} />
-          <span><strong>{m.label}</strong><em className="hint">{m.desc}</em></span>
-        </label>
-      ))}
     </div>
   )
 }
@@ -294,78 +279,19 @@ function SuperAdmin({ tenant, admins }) {
 
 function Installations({ tenant, rows, platform, onChange }) {
   const [form, setForm] = useState(null) // { inst } to edit, {} to create
-  const [run, busy] = useAction()
-  const toast = useToast()
-  const copy = async (text, what) => {
-    try { await navigator.clipboard.writeText(text); toast(`${what} copied`) } catch { toast(text) }
-  }
-  const update = (inst, body, message) => run(async () => { await api.put(`/platform/installations/${inst._id}`, body); onChange() }, message)
-  const resetDevice = (inst) => run(async () => { await api.post(`/platform/installations/${inst._id}/reset-device`); onChange() }, 'The key can now be activated on another computer')
+  const urls = { create: `/platform/tenants/${tenant._id}/installations`, item: (id) => `/platform/installations/${id}` }
   return (
     <div className="card">
       <div className="card-pad row between">
         <div>
           <h2 className="row"><Monitor size={17} /> Desktop app (Windows .exe)</h2>
-          <p className="small text-2" style={{ marginTop: 4 }}>Each installation gets its own key and modules. Send the download link: the installer puts a desktop shortcut and activates itself. It works offline and syncs with your server.</p>
+          <p className="small text-2" style={{ marginTop: 4 }}>Each installation gets its own key and modules. Send the download link: the installer puts a desktop shortcut and activates itself. It works offline and syncs with your server. The institute's super admin can manage these keys too.</p>
         </div>
         <button className="btn btn-primary" onClick={() => setForm({})}><Plus size={16} /> New installation</button>
       </div>
       {!platform.installer && <div className="alert mb" style={{ margin: '0 16px 16px' }}>The installer is not built yet. Run <span className="mono">npm run desktop:build</span> on your machine, then the download links work.</div>}
-      {rows.length ? (
-        <div className="table-wrap">
-          <table className="table">
-            <thead><tr><th>Installation</th><th>Activation key</th><th>Modules</th><th>Computer</th><th>Last sync</th><th>Status</th><th /></tr></thead>
-            <tbody>{rows.map((i) => (
-              <tr key={i._id}>
-                <td><div className="cell-title">{i.label}</div><div className="cell-sub">Device {i.deviceCode}</div></td>
-                <td><span className="mono">{i.key}</span> <button className="btn btn-ghost btn-sm btn-icon" title="Copy key" onClick={() => copy(i.key, 'Key')}><Copy size={13} /></button></td>
-                <td className="small">{i.modules?.length ? i.effectiveModules.map(moduleLabel).join(', ') : <Badge tone="good">All of the institute's</Badge>}</td>
-                <td className="small">{i.machineId ? <><div>{i.deviceName || 'Activated'}</div><div className="muted">since {fmtDate(i.activatedAt)}{i.appVersion ? ` · v${i.appVersion}` : ''}</div></> : <span className="muted">Not activated yet</span>}</td>
-                <td className="small">
-                  {i.lastSeenAt ? timeAgo(i.lastSeenAt) : '—'}
-                  {i.sync?.conflicts?.length > 0 && <div><Badge tone="warn" title={i.sync.conflicts.slice(0, 5).map((c) => `${c.model}: ${c.reason}`).join('\n')}>{i.sync.conflicts.length} conflicts</Badge></div>}
-                </td>
-                <td>{i.status === 'active' ? <Badge tone="good">Active</Badge> : <Badge tone="bad">Revoked</Badge>}</td>
-                <td className="nowrap">
-                  <button className="btn btn-sm" title="Copy download link" onClick={() => copy(i.downloadUrl, 'Download link')} disabled={!platform.installer}><Download size={14} /> Link</button>{' '}
-                  <button className="btn btn-sm btn-ghost" onClick={() => setForm({ inst: i })}>Modules</button>
-                  {i.machineId && <button className="btn btn-sm btn-ghost" onClick={() => resetDevice(i)} disabled={busy} title="Allow activation on a different computer">Move</button>}
-                  {i.status === 'active'
-                    ? <button className="btn btn-sm btn-ghost" onClick={() => update(i, { status: 'revoked' }, 'Installation revoked - it locks at its next sync')} disabled={busy} title="Revoke"><ShieldOff size={14} /></button>
-                    : <button className="btn btn-sm btn-ghost" onClick={() => update(i, { status: 'active' }, 'Installation active again')} disabled={busy}>Restore</button>}
-                </td>
-              </tr>
-            ))}</tbody>
-          </table>
-        </div>
-      ) : <Empty text="No desktop installations yet." />}
-      {form && <InstallationForm tenant={tenant} inst={form.inst} onClose={() => setForm(null)} onSaved={() => { setForm(null); onChange() }} />}
+      <DesktopKeyTable rows={rows} urls={urls} installer={Boolean(platform.installer)} onChange={onChange} onEdit={(inst) => setForm({ inst })} />
+      {form && <DesktopKeyForm inst={form.inst} modules={tenant.modules} instituteName={tenant.name} urls={urls} onClose={() => setForm(null)} onSaved={() => { setForm(null); onChange() }} />}
     </div>
-  )
-}
-
-function InstallationForm({ tenant, inst, onClose, onSaved }) {
-  const [label, setLabel] = useState(inst?.label || '')
-  const [limit, setLimit] = useState(Boolean(inst?.modules?.length))
-  const [modules, setModules] = useState(inst?.modules?.length ? inst.modules : tenant.modules)
-  const [run, busy] = useAction()
-  const submit = (e) => {
-    e.preventDefault()
-    const body = { label, modules: limit ? modules : [] }
-    run(async () => {
-      if (inst) await api.put(`/platform/installations/${inst._id}`, body)
-      else await api.post(`/platform/tenants/${tenant._id}/installations`, body)
-      onSaved()
-    }, inst ? 'Installation updated - applies at its next sync' : 'Installation created - copy its download link')
-  }
-  return (
-    <Modal title={inst ? `Edit ${inst.label}` : 'New desktop installation'} onClose={onClose} footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn btn-primary" form="inst-form" disabled={busy}>{inst ? 'Save' : 'Create key'}</button></>}>
-      <form id="inst-form" className="stack" onSubmit={submit}>
-        <Field label="Name" hint='Which computer / who uses it, e.g. "Accounts PC" or "Principal laptop"'><input className="input" value={label} onChange={(e) => setLabel(e.target.value)} required autoFocus /></Field>
-        <label className="check"><input type="checkbox" checked={limit} onChange={(e) => setLimit(e.target.checked)} /> Give this computer only some modules</label>
-        {limit && <ModuleChecks value={modules} onChange={setModules} allowed={tenant.modules} />}
-        {!limit && <div className="small muted">This computer gets all modules of {tenant.name}.</div>}
-      </form>
-    </Modal>
   )
 }

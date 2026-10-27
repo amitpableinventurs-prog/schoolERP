@@ -1,6 +1,6 @@
-// Printable report card and fee receipt (shared by staff and student portal).
+// Printable fee receipt and payslip; exam documents are in ExamDocs.jsx (shared by staff and student portal).
 import { Printer } from 'lucide-react'
-import { fmtDate, money, monthName, rupeesInWords, TYPE_LABEL } from '../lib/format.js'
+import { fmtDate, money, monthName, rupeesInWords } from '../lib/format.js'
 
 export function PrintBar({ back }) {
   return (
@@ -11,7 +11,7 @@ export function PrintBar({ back }) {
   )
 }
 
-function Letterhead({ institute, title, right }) {
+export function Letterhead({ institute, title, right }) {
   return (
     <div className="doc-head">
       <div>
@@ -22,44 +22,6 @@ function Letterhead({ institute, title, right }) {
       <div style={{ textAlign: 'right' }}>
         <h2>{title}</h2>
         {right}
-      </div>
-    </div>
-  )
-}
-
-export function ReportCardDoc({ data }) {
-  const { exam, student, mark, outOf, attendance, institute } = data
-  const maxBy = Object.fromEntries(exam.subjects.map((s) => [s.name, s.maxMarks]))
-  return (
-    <div className="doc">
-      <Letterhead institute={institute} title="Report Card" right={<div className="muted">{exam.name} · {fmtDate(exam.date)}</div>} />
-      <table>
-        <tbody>
-          <tr><th>Student</th><td>{student.name}</td><th>Admission no.</th><td>{student.admissionNo}</td></tr>
-          <tr><th>Class / batch</th><td>{exam.batch.name} ({TYPE_LABEL[exam.batch.type]})</td><th>Roll no.</th><td>{student.rollNo}</td></tr>
-          <tr><th>Guardian</th><td>{student.guardianName}</td><th>Attendance (90 days)</th><td>{attendance ? `${attendance.pct}% (${attendance.present}/${attendance.total})` : '—'}</td></tr>
-        </tbody>
-      </table>
-      <table>
-        <thead><tr><th>Subject</th><th style={{ textAlign: 'right' }}>Max</th><th style={{ textAlign: 'right' }}>Obtained</th><th style={{ textAlign: 'right' }}>%</th></tr></thead>
-        <tbody>
-          {mark.scores.map((s) => (
-            <tr key={s.subject}><td>{s.subject}</td><td style={{ textAlign: 'right' }}>{maxBy[s.subject]}</td><td style={{ textAlign: 'right' }}>{s.marks}</td><td style={{ textAlign: 'right' }}>{Math.round((s.marks / maxBy[s.subject]) * 100)}%</td></tr>
-          ))}
-          <tr><th>Total</th><th style={{ textAlign: 'right' }}>{mark.max}</th><th style={{ textAlign: 'right' }}>{mark.total}</th><th style={{ textAlign: 'right' }}>{mark.percent}%</th></tr>
-        </tbody>
-      </table>
-      <table>
-        <tbody><tr><th>Grade</th><td>{mark.grade}</td><th>Rank</th><td>{mark.rank} of {outOf}</td><th>Result</th><td>{mark.percent >= (institute.passPercent || 35) ? 'PASS' : 'NEEDS IMPROVEMENT'}</td></tr></tbody>
-      </table>
-      <div style={{ marginTop: 14 }}>
-        <strong>Teacher&apos;s remark</strong>
-        <p style={{ marginTop: 4, minHeight: 40 }}>{mark.remark || '—'}</p>
-      </div>
-      <div className="row between" style={{ marginTop: 48 }}>
-        <div>______________________<br />Class Teacher</div>
-        <div>______________________<br />Parent / Guardian</div>
-        <div>______________________<br />Principal / Director</div>
       </div>
     </div>
   )

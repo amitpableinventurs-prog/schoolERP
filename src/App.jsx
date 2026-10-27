@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect } from 'react'
+import { KeyRound, Lock, RefreshCw } from 'lucide-react'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { can, useAuth } from './lib/auth.jsx'
 import Layout from './components/Layout.jsx'
@@ -21,6 +22,12 @@ const Staff = {
   Exams: page(() => import('./pages/staff/Exams.jsx')),
   ExamMarks: page(() => import('./pages/staff/ExamMarks.jsx')),
   ReportCard: page(() => import('./pages/staff/ReportCardPage.jsx')),
+  ReportCards: page(() => import('./pages/staff/ReportCards.jsx')),
+  ExamSchedule: page(() => import('./pages/staff/ExamSchedule.jsx')),
+  GradeScales: page(() => import('./pages/staff/GradeScales.jsx')),
+  AdmitCards: page(() => import('./pages/staff/AdmitCards.jsx')),
+  AdmitCardsIndex: page(() => import('./pages/staff/AdmitCards.jsx').then((m) => ({ default: m.AdmitCardsIndex }))),
+  TermReport: page(() => import('./pages/staff/TermReport.jsx')),
   Tests: page(() => import('./pages/staff/Tests.jsx')),
   TestEditor: page(() => import('./pages/staff/TestEditor.jsx')),
   TestResults: page(() => import('./pages/staff/TestResults.jsx')),
@@ -41,6 +48,8 @@ const Staff = {
   Leaves: page(() => import('./pages/staff/Leaves.jsx')),
   Admins: page(() => import('./pages/staff/Admins.jsx')),
   ActivityLog: page(() => import('./pages/staff/ActivityLog.jsx')),
+  DesktopApps: page(() => import('./pages/staff/DesktopApps.jsx')),
+  TransportLive: page(() => import('./pages/staff/TransportLive.jsx')),
   TransportDashboard: page(() => import('./pages/staff/TransportDashboard.jsx')),
   TransportVehicles: page(() => import('./pages/staff/TransportVehicles.jsx')),
   TransportRoutes: page(() => import('./pages/staff/TransportRoutes.jsx')),
@@ -65,6 +74,8 @@ const Portal = {
   Timetable: page(() => import('./pages/portal/MyTimetable.jsx')),
   Results: page(() => import('./pages/portal/MyResults.jsx')),
   ReportCard: page(() => import('./pages/portal/MyReportCard.jsx')),
+  Exams: page(() => import('./pages/portal/MyExams.jsx')),
+  AdmitCard: page(() => import('./pages/portal/MyExams.jsx').then((m) => ({ default: m.MyAdmitCard }))),
   Tests: page(() => import('./pages/portal/MyTests.jsx')),
   TakeTest: page(() => import('./pages/portal/TakeTest.jsx')),
   TestReview: page(() => import('./pages/portal/TestReview.jsx')),
@@ -82,6 +93,8 @@ const Portal = {
   Certificate: page(() => import('./pages/portal/MyCertificates.jsx').then((m) => ({ default: m.MyCertificate }))),
 }
 const Verify = page(() => import('./pages/Verify.jsx'))
+const DriverTrack = page(() => import('./pages/DriverTrack.jsx'))
+const OwnerApp = page(() => import('./pages/owner/Owner.jsx'))
 const Parent = {
   Home: page(() => import('./pages/parent/ParentHome.jsx')),
   Child: page(() => import('./pages/parent/ChildOverview.jsx')),
@@ -111,7 +124,13 @@ function StaffRoutes() {
         <Route path="attendance" element={g('attendance', <S.Attendance />)} />
         <Route path="timetable" element={g('timetable', <S.Timetable />)} />
         <Route path="exams" element={g('exams', <S.Exams />)} />
+        <Route path="exams/schedule" element={g('exams', <S.ExamSchedule />)} />
+        <Route path="exams/admit-cards" element={g('exams', <S.AdmitCardsIndex />)} />
+        <Route path="exams/grades" element={g('exams', <S.GradeScales />)} />
+        <Route path="exams/term-report" element={g('exams', <S.TermReport />)} />
         <Route path="exams/:id" element={g('exams', <S.ExamMarks />)} />
+        <Route path="exams/:id/admit-cards" element={g('exams', <S.AdmitCards />)} />
+        <Route path="exams/:id/report-cards" element={g('exams', <S.ReportCards />)} />
         <Route path="exams/:id/report/:student" element={g('students', <S.ReportCard />)} />
         <Route path="tests" element={g('tests', <S.Tests />)} />
         <Route path="tests/new" element={g('tests', <S.TestEditor />)} />
@@ -134,7 +153,9 @@ function StaffRoutes() {
         <Route path="leaves" element={g('leaves', <S.Leaves />)} />
         <Route path="admins" element={g('admins', <S.Admins />)} />
         <Route path="activity" element={g('activity', <S.ActivityLog />)} />
+        <Route path="desktop-apps" element={g('desktopApps', <S.DesktopApps />)} />
         <Route path="transport" element={g('transport', <S.TransportDashboard />)} />
+        <Route path="transport/live" element={g('transport', <S.TransportLive />)} />
         <Route path="transport/vehicles" element={g('transport', <S.TransportVehicles />)} />
         <Route path="transport/routes" element={g('transport', <S.TransportRoutes />)} />
         <Route path="transport/assignments" element={g('transport', <S.TransportAssignments />)} />
@@ -167,6 +188,8 @@ function PortalRoutes() {
         <Route path="my/timetable" element={<P.Timetable />} />
         <Route path="my/results" element={<P.Results />} />
         <Route path="my/results/:exam" element={<P.ReportCard />} />
+        <Route path="my/exams" element={<P.Exams />} />
+        <Route path="my/exams/:exam/admit-card" element={<P.AdmitCard />} />
         <Route path="my/tests" element={<P.Tests />} />
         <Route path="my/tests/:id/take" element={<P.TakeTest />} />
         <Route path="my/tests/:id/review" element={<P.TestReview />} />
@@ -204,6 +227,8 @@ function ParentRoutes() {
           <Route path="timetable" element={<P.Timetable />} />
           <Route path="results" element={<P.Results />} />
           <Route path="results/:exam" element={<P.ReportCard />} />
+          <Route path="exams" element={<P.Exams />} />
+          <Route path="exams/:exam/admit-card" element={<P.AdmitCard />} />
           <Route path="tests" element={<P.Tests />} />
           <Route path="tests/:id/review" element={<P.TestReview />} />
           <Route path="courses" element={<P.Courses />} />
@@ -232,10 +257,34 @@ function ToLogin() {
   return <Navigate to={`${PORTALS[key].login}${next}`} replace />
 }
 
+// Desktop licence locked (deactivated key, too long offline) or institute suspended.
+// Checks again by itself, so the app opens as soon as the key is activated again.
+function LockScreen({ message }) {
+  const { refresh } = useAuth()
+  useEffect(() => {
+    const timer = setInterval(refresh, 10_000)
+    return () => clearInterval(timer)
+  }, [refresh])
+  return (
+    <div className="auth-wrap">
+      <section className="auth-form" style={{ margin: '0 auto' }}>
+        <div className="card card-pad auth-card stack">
+          <div className="auth-card-icon"><Lock size={22} /></div>
+          <h1>This app is locked</h1>
+          <div className="alert alert-error">{message}</div>
+          <p className="small muted">It checks again every few seconds and opens by itself as soon as access is restored (for the desktop app: when the key is activated again and this computer is online).</p>
+          <button className="btn" onClick={refresh}><RefreshCw size={15} /> Check now</button>
+          {window.sc?.changeKey && <button className="btn btn-ghost" onClick={() => window.sc.changeKey()}><KeyRound size={15} /> Use a different key</button>}
+        </div>
+      </section>
+    </div>
+  )
+}
+
 const isLoginPath = (path) => path === '/login' || Object.values(PORTALS).some((p) => p.login === path)
 
 export default function App() {
-  const { loading, user } = useAuth()
+  const { loading, user, locked } = useAuth()
   const { pathname, search } = useLocation()
   const portal = user && portalOfRole(user.role)
   useEffect(() => { if (portal) rememberPortal(portal) }, [portal])
@@ -248,7 +297,24 @@ export default function App() {
       </Suspense>
     )
   }
+  // The bus driver's tracking page needs no login (the token in the link identifies the bus).
+  if (pathname.startsWith('/track/')) {
+    return (
+      <Suspense fallback={<Loading />}>
+        <Routes><Route path="/track/:token" element={<DriverTrack />} /></Routes>
+      </Suspense>
+    )
+  }
+  // The provider's owner console has its own login, separate from institute users.
+  if (pathname === '/owner' || pathname.startsWith('/owner/')) {
+    return (
+      <Suspense fallback={<Loading />}>
+        <Routes><Route path="/owner/*" element={<OwnerApp />} /></Routes>
+      </Suspense>
+    )
+  }
   if (loading) return <Loading text="Starting…" />
+  if (locked) return <LockScreen message={locked} />
   if (!user) {
     return (
       <Routes>

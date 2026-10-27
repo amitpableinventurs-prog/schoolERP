@@ -1,7 +1,52 @@
-import { Bus, Clock, MapPin, Phone, Route as RouteIcon } from 'lucide-react'
-import { fmtDate, money } from '../../lib/format.js'
+import { useEffect, useMemo, useState } from 'react'
+import { Bus, Clock, MapPin, Navigation, Phone, Route as RouteIcon } from 'lucide-react'
+import { fmtDate, money, timeAgo } from '../../lib/format.js'
+import { distanceM, etaMinutes, fmtDistance, FRESH_LABEL, FRESH_TONE, freshness } from '../../lib/geo.js'
+import LiveMap from '../../components/LiveMap.jsx'
 import { Async, Badge, Empty, PageHead, StatTile, StatusBadge, useApi } from '../../components/ui.jsx'
 import { useScope } from '../../lib/scope.jsx'
+
+// Where the bus is now, and roughly how far it is from the student's stop.
+function LiveBus({ base }) {
+  const live = useApi(`${base}/transport/live`)
+  const { reload } = live
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const timer = setInterval(() => { reload(); setNow(Date.now()) }, 15_000)
+    return () => clearInterval(timer)
+  }, [reload])
+  const d = live.data
+  const stops = useMemo(() => (d?.route?.stops || []).slice().sort((a, b) => (a.sequence || 0) - (b.sequence || 0))
+    .map((s) => ({ id: s._id, lat: s.lat, lng: s.lng, name: s.name, mine: String(s._id) === String(d.assignment?.stop) })), [d])
+  const pins = useMemo(() => (d?.location ? [{ id: 'bus', lat: d.location.lat, lng: d.location.lng, label: d.vehicle.number, live: freshness(d.location.at, now) === 'live' }] : []), [d, now])
+  if (live.error || !d?.assignment) return null
+  const mine = stops.find((s) => s.mine)
+  const f = freshness(d.location?.at || d.lastSeenAt, now)
+  const away = d.location && mine?.lat != null ? distanceM(d.location, mine) : null
+  return (
+    <div className="card card-pad stack mb">
+      <div className="row between">
+        <h2 className="row"><Navigation size={17} /> Live bus location</h2>
+        <Badge tone={FRESH_TONE[d.location ? f : 'none']}>{d.location ? FRESH_LABEL[f] : 'Not on the road'}</Badge>
+      </div>
+      {d.location ? (
+        <>
+          <div className="row small" style={{ gap: 16, flexWrap: 'wrap' }}>
+            <span>Bus <strong>{d.vehicle.number}</strong></span>
+            {away != null && <span><strong>{fmtDistance(away)}</strong> from {mine.name}{away > 150 ? <> · about <strong>{etaMinutes(away, d.location.speed)} min</strong></> : ' · at your stop'}</span>}
+            {d.location.speed != null && <span>{Math.round(d.location.speed)} km/h</span>}
+            <span className="muted">updated {timeAgo(d.location.at)}</span>
+          </div>
+          <LiveMap vehicles={pins} stops={stops} fitKey={`${Boolean(d)}`} height={360} />
+          {mine?.lat == null && <p className="small muted" style={{ margin: 0 }}>Your stop is not marked on the map yet, so the distance cannot be shown.</p>}
+          <p className="small muted" style={{ margin: 0 }}>Times are approximate (straight-line distance, traffic not counted).</p>
+        </>
+      ) : (
+        <p className="small muted" style={{ margin: 0 }}>The bus is not sharing its location right now{d.lastSeenAt ? ` (last seen ${timeAgo(d.lastSeenAt)})` : ''}. It shows here as soon as the trip starts.</p>
+      )}
+    </div>
+  )
+}
 
 const monthLabel = (m) => {
   if (!m) return '—'
@@ -25,6 +70,7 @@ export default function MyTransport() {
         const presentCount = recentAttendance.filter((r) => r.status === 'boarded').length
         return (
           <>
+            <LiveBus base={api} />
             <div className="grid grid-3 mb">
               <StatTile icon={RouteIcon} label="Route" value={route?.name || '—'} foot={route?.code} />
               <StatTile icon={MapPin} label="Boarding stop" value={assignment.stopName} foot={stop?.landmark} />

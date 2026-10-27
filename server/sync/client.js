@@ -5,7 +5,7 @@ import { ActivityLog, SyncState, SyncTombstone } from '../models.js'
 import { config } from '../config.js'
 import { modelOf } from '../tenancy.js'
 import { collectionsFor } from '../../shared/modules.js'
-import { licensedModules, license, licenseToken, lockLicense, machineId, updateLicense } from '../desktop.js'
+import { licensedModules, license, licenseProblem, licenseToken, lockLicense, machineId, updateLicense } from '../desktop.js'
 import { applyDocs, applyTombstones, changesAfter, fromEJSON, toEJSON } from './common.js'
 
 const PAGE = 300
@@ -128,8 +128,8 @@ export async function startSyncClient() {
   syncStatus.conflicts = current.conflicts || []
   const loop = async () => {
     await syncNow()
-    // Until the first download is done, retry quickly.
-    setTimeout(loop, (syncStatus.initialized ? config.desktop.syncSeconds : 10) * 1000)
+    // Until the first download is done, or while locked (the key may be activated again), retry quickly.
+    setTimeout(loop, (syncStatus.initialized && !licenseProblem() ? config.desktop.syncSeconds : 10) * 1000)
   }
   loop()
 }

@@ -18,8 +18,14 @@ export const bindTenant = (fn) => AsyncLocalStorage.bind(fn)
 export const connectionFor = (dbName) => (dbName ? mongoose.connection.useDb(dbName, { useCache: true }) : mongoose.connection)
 export const tenantConnection = () => connectionFor(currentTenant()?.dbName)
 
-// The real mongoose model `name` on a connection (compiled there on first use).
+// The real mongoose model `name` on a connection. The first use compiles every model
+// there, so populate() finds referenced models (Batch, Staff…) not used directly yet.
+const compiled = new WeakSet()
 export function modelOf(name, conn = tenantConnection()) {
+  if (!compiled.has(conn)) {
+    compiled.add(conn)
+    for (const [other, schema] of schemas) if (!conn.models[other]) conn.model(other, schema)
+  }
   return conn.models[name] || conn.model(name, schemas.get(name))
 }
 export const modelNames = () => [...schemas.keys()]

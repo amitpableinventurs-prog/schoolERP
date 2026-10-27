@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { AlertTriangle, Bus, ClipboardCheck, IndianRupee, Map, Route as RouteIcon } from 'lucide-react'
+import { AlertTriangle, Bus, ClipboardCheck, IndianRupee, Map, Navigation, Route as RouteIcon } from 'lucide-react'
 import { fmtDate, money } from '../../lib/format.js'
 import { Async, Empty, PageHead, StatTile, useApi } from '../../components/ui.jsx'
 
@@ -41,6 +41,7 @@ export default function TransportDashboard() {
             ) : <Empty text="All vehicle papers are up to date." />}
           </div>
           <div className="row mt" style={{ gap: 8, flexWrap: 'wrap' }}>
+            <Link className="btn btn-primary" to="/transport/live"><Navigation size={14} /> Live Bus Tracking</Link>
             <Link className="btn" to="/transport/vehicles"><Bus size={14} /> Vehicles</Link>
             <Link className="btn" to="/transport/routes"><RouteIcon size={14} /> Routes & Stops</Link>
             <Link className="btn" to="/transport/assignments"><Map size={14} /> Student Assignments</Link>

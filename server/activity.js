@@ -2,12 +2,13 @@
 // (POST / PUT / DELETE) is recorded automatically by `activityLogger`; logins and
 // failed logins are recorded by the login route through `logActivity`.
 import { ActivityLog } from './models.js'
+import { bindTenant } from './tenancy.js'
 
 const VERB = { POST: 'create', PUT: 'update', PATCH: 'update', DELETE: 'delete' }
 
 // Read-only AI helpers and chat are not changes; skip them to keep the log useful.
 const SKIP = [/^\/certificates\/preview$/, /^\/ai\/chat$/, /^\/ai\/risk-plan\//, /^\/notices\/ai-draft$/, /^\/tests\/ai-generate$/, /^\/leads\/[^/]+\/ai-message$/, /^\/auth\/login$/]
-const UPDATES = [/^\/payroll\/(approve|unapprove|pay)$/,/^\/certificates\/[^/]+\/(revoke|share)$/, /^\/students\/[^/]+\/(reset-password|parent-login)$/, /^\/leads\/[^/]+\/(followups|convert)$/, /^\/outbox\/bulk$/, /^\/automation\/rules\/[^/]+\/run$/, /^\/automation\/run-all$/, /^\/auth\/password$/]
+const UPDATES = [/^\/payroll\/(approve|unapprove|pay)$/,/^\/certificates\/[^/]+\/(revoke|share)$/, /^\/students\/[^/]+\/(reset-password|parent-login)$/, /^\/leads\/[^/]+\/(followups|convert)$/, /^\/outbox\/bulk$/, /^\/automation\/rules\/[^/]+\/run$/, /^\/automation\/run-all$/, /^\/auth\/password$/, /^\/desktop-apps\/[^/]+\/(reset-device|renew)$/]
 const AI = [/^\/papers\/generate$/, /^\/exams\/[^/]+\/ai-remarks$/, /^\/doubts\/[^/]+\/ai-answer$/]
 
 const MODULE = {
@@ -16,6 +17,7 @@ const MODULE = {
   materials: 'Study material', doubts: 'Doubts', notices: 'Notices', fees: 'Fees', leads: 'Admissions CRM',
   automation: 'Automation', outbox: 'Outbox', courses: 'LMS courses', assignments: 'Assignments', leaves: 'Leave requests',
   certificates: 'Certificates', transport: 'Transport', payroll: 'Payroll', finance: 'Finance',
+  'desktop-apps': 'Desktop apps',
 }
 
 const NOUN = {
@@ -34,6 +36,14 @@ function describe(req, body, parts) {
   const m = req.method
   const name = label(body) || label(b)
   if (mod === 'auth' && id === 'password') return 'Changed own password'
+  if (mod === 'desktop-apps') {
+    if (sub === 'reset-device') return `Freed desktop key ${body?.key || ''} for another computer`
+    if (sub === 'renew') return `Renewed desktop app key "${body?.label}" (${body?.key}) until ${body?.expiresAt ? new Date(body.expiresAt).toLocaleDateString('en-IN') : '-'}`
+    if (m === 'DELETE') return `Deleted desktop app key "${body?.label}" (${body?.key})`
+    if (m === 'POST') return `Created desktop app key "${body?.label}" (${body?.key})`
+    if (b.status) return `${b.status === 'revoked' ? 'Deactivated' : 'Activated'} desktop app "${body?.label}" (${body?.key})`
+    return `Changed desktop app "${body?.label}"`
+  }
   if (mod === 'payroll' && id === 'generate') return `Generated payroll for ${b.month || 'this month'}${body?.created != null ? ` — ${body.created} payslip(s)` : ''}`
   if (mod === 'payroll' && id === 'approve') return `Approved ${body?.updated ?? ''} payslip(s)`
   if (mod === 'payroll' && id === 'pay') return `Paid salary to ${body?.paid ?? ''} staff — ${money(body?.amount)} by ${b.mode || 'bank'}`
@@ -115,7 +125,8 @@ export function activityLogger(req, res, next) {
     res.locals.body = body
     return json(body)
   }
-  res.on('finish', () => {
+  // 'finish' fires outside the request's async context: keep the institute bound.
+  res.on('finish', bindTenant(() => {
     if (!req.user || ['student', 'parent'].includes(req.user.role) || res.statusCode >= 400) return
     const path = req.originalUrl.split('?')[0].replace(/^\/api/, '')
     if (SKIP.some((rx) => rx.test(path))) return
@@ -129,6 +140,6 @@ export function activityLogger(req, res, next) {
       status: res.statusCode,
       detail: detailOf(req.body),
     })
-  })
+  }))
   next()
 }

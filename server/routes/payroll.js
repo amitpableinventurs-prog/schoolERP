@@ -7,6 +7,7 @@ import { Payslip, SalaryAdvance, SalaryStructure, Staff, User } from '../models.
 import { getSettings } from '../insights.js'
 import { asyncHandler, escapeRegex, httpError, pick, ymd } from '../util.js'
 import { wingsListFilter } from '../scope.js'
+import { seriesTag } from '../desktop.js'
 
 const router = Router()
 const payroll = allow('accountant')
@@ -238,7 +239,7 @@ router.post('/payroll/generate', payroll, asyncHandler(async (req, res) => {
         await Payslip.create({
           staff: staff._id,
           month,
-          slipNo: `PS-${month.replace('-', '')}-${String(seq).padStart(4, '0')}`,
+          slipNo: `PS-${month.replace('-', '')}-${seriesTag()}${String(seq).padStart(4, '0')}`,
           wings: staff.wings || [],
           staffName: staff.name,
           designation: staff.designation,

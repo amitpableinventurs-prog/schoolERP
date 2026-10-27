@@ -75,7 +75,7 @@ desktopRoutes.get('/status', (req, res) => {
     ...syncStatus,
     locked: licenseProblem(),
     centralUrl: config.desktop.centralUrl,
-    license: lic && { institute: lic.tname, code: lic.tid, label: lic.label, deviceCode: lic.dc, modules: lic.mods, validUntil: new Date(lic.exp * 1000) },
+    license: lic && { institute: lic.tname, code: lic.tid, label: lic.label, deviceCode: lic.dc, modules: lic.mods, validUntil: new Date(lic.exp * 1000), keyExpiresAt: lic.kexp ? new Date(lic.kexp * 1000) : null },
   })
 })
 

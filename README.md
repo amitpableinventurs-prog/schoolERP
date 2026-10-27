@@ -52,6 +52,90 @@ NODE_ENV=production npm start     # serves the built app and the API on PORT (51
 
 Use a new random `JWT_SECRET` and strong admin password on the server.
 
+## Platform: many clients, one central server
+
+This server can host many client institutes. Each one has its **own MongoDB database** on your
+server (`sc_<code>`); you control all of them from the **owner console** at `/owner`
+(login = `OWNER_EMAIL` / `OWNER_PASSWORD` in `.env`, only on your own hosts, never on a client's domain).
+
+In the owner console you can:
+
+- create an institute (name, code, super admin login, optional demo data) and set its **modules**,
+  subscription end date, max desktop installs, offline days;
+- give it web addresses: `<code>.PLATFORM_DOMAIN` works automatically, plus any **custom domain**
+  of the client (`erp.clientschool.com`), with a **Check DNS** button;
+- **suspend** an institute or let its subscription end → web and desktop both lock;
+- reset the institute's super admin password;
+- issue **desktop installations** (Windows .exe) with their own key and modules, copy the download
+  link, move a key to another computer, or **revoke** it.
+
+The database in `MONGODB_URI` stays the **main** institute (served on `localhost` / your own domain), so
+existing setups keep working. Modules: academics, online exams, LMS, fees, finance, payroll, transport,
+certificates, admissions CRM, automation, AI (`shared/modules.js`); the core (students, staff, classes,
+notices, settings, admins) is always on. Blocked modules disappear from menus and their API returns 403.
+
+### Live server with client domains
+
+1. Point your own domain at the server: `A  app.myerp.in → <server IP>` and a wildcard
+   `A  *.myerp.in → <server IP>` (for `<code>.myerp.in`).
+2. `.env`: `PLATFORM_DOMAIN=myerp.in`, `PLATFORM_URL=https://app.myerp.in`,
+   `PLATFORM_CNAME_TARGET=app.myerp.in`, `SERVER_IP=<server IP>`, `NODE_ENV=production`.
+3. Run Caddy with [deploy/Caddyfile](deploy/Caddyfile): it gets HTTPS certificates automatically,
+   also for client domains (it asks `/api/platform/tls-check` first, so only domains you added work).
+4. For a client domain, the client (or you) adds at their DNS provider:
+   `CNAME erp → app.myerp.in` (subdomain) or `A @ → <server IP>` (main domain). Add the domain in the
+   owner console and press **Check DNS**. The client's data stays on your server; they only own the name.
+
+Back up the `keys/` folder: it signs desktop licences, and desktop apps are built with its public key.
+
+## Windows desktop app (.exe, works offline)
+
+The desktop app runs the same app on the client's computer with its own local database, so it works
+**without internet**. Every minute it syncs with your central server: local changes go up, changes made
+online come down (newer edit wins; deletes are synced too). Receipt / admission / voucher / certificate
+numbers made on a desktop carry its device code (`RCP-2026-D2-00001`) so they never clash.
+
+```bash
+npm run desktop:install                                  # once: Electron + builder
+npm run desktop:build -- --url=https://app.myerp.in      # → desktop/release/SmartCampus-Setup-<ver>.exe
+```
+
+The build bundles `mongod.exe` from your MongoDB install and the licence public key from `keys/`.
+After building, the owner console's **Link** button gives a download URL per installation
+(`/api/platform/download/<KEY>`): the file is named `SmartCampus-Setup-<KEY>.exe`, installs per-user
+with a **desktop shortcut** and activates itself on first start (needs internet once, for the first
+download of the institute's data). Without that file name, the app asks for the key.
+
+The institute's **super admin** manages its own keys too, on the website under
+**Super Admin → Desktop Apps**: create a key, limit its modules, **Deactivate** / **Activate** it and
+**Move** it to another computer (within the owner's *max desktop installs*). Every change is in the
+Activity Log. Inside the desktop app the same page shows that computer's licence and sync status.
+Each key has a plan: **Monthly**, **Yearly**, a fixed date or no expiry. An expired key cannot be
+activated, a running app locks at its next sync (offline apps lock on the date itself), and **Renew**
+adds one month / year and unlocks it again.
+
+## Live bus tracking (GPS)
+
+Transport → **Live Bus Tracking** shows every bus on an OpenStreetMap map (refreshes every 10 s),
+with speed, last update and today's path. Positions come from either
+- the **Traccar Client** app (Android / iPhone, works in the background) or a GPS tracker that posts
+  the OsmAnd protocol to `/api/gps/osmand` - device identifier = the bus's tracking token (or its
+  *GPS device id*), or
+- the driver's phone browser at `/track/<token>` (needs the site on **https**).
+
+Each bus's **Setup** button creates the token and shows both options. Students and parents see their
+bus, their stop, the distance and a rough ETA on their Transport page. Set stop positions in
+Routes & Stops → Edit stops → **Pick** (click on the map or paste "lat, lng"). Positions stay on the
+central server (the path is kept for 3 days) and are not synced to desktop apps.
+
+Licence rules: a key binds to the first computer that activates it (**Move** in the console frees it);
+the desktop gets only its installation's modules and only those collections are synced; admin logins
+can only be created or promoted online; if a desktop is offline longer than the institute's
+*offline days* (default 15) it locks until it syncs; revoked keys and suspended / expired institutes
+lock at the next sync. AI features need the central server and are off on the desktop.
+The installer is not code-signed, so Windows SmartScreen shows "More info → Run anyway" until you sign it.
+`npm run desktop:stage` + `npm run desktop:dev` runs the app from source for testing.
+
 ## Modules
 
 **Overview**
@@ -114,9 +198,18 @@ server/
   seed.js         Demo data (`npm run seed`); seed-lms.js adds the LMS demo
   routes/         core (auth, students, staff, batches), academics, office (fees, CRM, automation, AI),
                   lms (courses, assignments, leave), portal (student; shared views), parent
+  tenancy.js      Per-institute databases: models resolve to the current request's institute
+  platform/       Owner console API, institutes + installations, host → institute resolver
+  license.js      Signed desktop licences (Ed25519)
+  sync/           Desktop sync: central.js (server side), client.js (desktop side), common.js
+  desktop.js      Desktop mode: licence lock, /api/desktop status
+shared/modules.js Sellable modules → menus, API paths, synced collections
+desktop/          Electron app (main.js), activation screen, installer build (build.mjs)
+deploy/Caddyfile  HTTPS for your domain and client domains
 src/
   pages/staff/    Staff screens
   pages/portal/   Student portal (also shown to parents through lib/scope.jsx)
   pages/parent/   Parent home and child overview
+  pages/owner/    Owner console (/owner)
   components/     UI kit, charts, layout, printable documents
 ```

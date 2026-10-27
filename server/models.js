@@ -1,6 +1,41 @@
 import mongoose from 'mongoose'
+import { defineModel, modelOf } from './tenancy.js'
 
-const { Schema, model } = mongoose
+const { Schema } = mongoose
+
+// Desktop sync: deletes of synced records are remembered as tombstones so the other
+// side (central server / desktop app) can replay them.
+const NOT_TRACKED = ['ActivityLog', 'AutomationRule', 'Outbox', 'AutomationLog', 'SyncTombstone', 'SyncState', 'VehicleLocation', 'VehiclePing']
+
+async function recordDeletes(Model, ids) {
+  if (!ids?.length) return
+  const deletedAt = new Date()
+  await modelOf('SyncTombstone', Model.db).bulkWrite(ids.map((docId) => ({
+    updateOne: { filter: { model: Model.modelName, docId }, update: { $set: { deletedAt } }, upsert: true },
+  })))
+}
+
+function trackDeletes(schema) {
+  schema.pre('deleteMany', async function () {
+    this._deletedIds = await this.model.distinct('_id', this.getFilter())
+  })
+  schema.pre('deleteOne', { query: true, document: false }, async function () {
+    const doc = await this.model.findOne(this.getFilter(), '_id').lean()
+    this._deletedIds = doc ? [doc._id] : []
+  })
+  schema.post(['deleteMany', 'deleteOne'], { query: true, document: false }, async function () {
+    await recordDeletes(this.model, this._deletedIds)
+  })
+  schema.post('findOneAndDelete', async function (doc) {
+    if (doc) await recordDeletes(this.model, [doc._id])
+  })
+  schema.post('deleteOne', { document: true, query: false }, async function () {
+    await recordDeletes(this.constructor, [this._id])
+  })
+}
+
+// Models resolve to the database of the current tenant (see tenancy.js).
+const model = (name, schema) => defineModel(name, NOT_TRACKED.includes(name) ? schema : schema.plugin(trackDeletes))
 const ref = (name) => ({ type: Schema.Types.ObjectId, ref: name })
 const opts = { timestamps: true }
 
@@ -113,23 +148,50 @@ export const Payment = model('Payment', new Schema({
   collectedBy: ref('User'),
 }, opts))
 
+// Bands are matched from the highest `min` down; `point` is the grade point for GPA/CGPA.
+export const GradeScale = model('GradeScale', new Schema({
+  name: { type: String, required: true, trim: true },
+  appliesTo: [{ type: String, enum: INSTITUTION_TYPES }], // default scale for these wings
+  passPercent: { type: Number, default: 33 },
+  bands: [{ min: Number, grade: String, point: Number, remark: String, _id: false }],
+}, opts))
+
 export const Exam = model('Exam', new Schema({
   name: { type: String, required: true },
   batch: { ...ref('Batch'), required: true },
   type: { type: String, enum: ['unit', 'mid', 'final', 'mock'], default: 'unit' },
-  date: String,
-  subjects: [{ name: String, maxMarks: { type: Number, default: 100 } }],
+  term: String, // e.g. "Term 1", "Semester 3"
+  date: String, // first paper's date (kept in sync with the schedule)
+  gradeScale: ref('GradeScale'),
+  // Each subject is one paper of the date sheet.
+  subjects: [{
+    name: String,
+    maxMarks: { type: Number, default: 100 },
+    passMarks: Number, // empty = the grade scale's pass %
+    date: String,
+    start: String,
+    end: String,
+    room: String,
+    invigilator: ref('Staff'),
+  }],
+  instructions: String,
+  admitCards: { type: Boolean, default: false }, // released to the student portal
+  holdOnDues: { type: Boolean, default: false }, // withhold admit cards while fees are overdue
+  admitAllowed: [ref('Student')], // let these students through despite dues
   published: { type: Boolean, default: false },
 }, opts))
 
 export const Mark = model('Mark', new Schema({
   exam: { ...ref('Exam'), required: true },
   student: { ...ref('Student'), required: true },
-  scores: [{ subject: String, marks: Number, _id: false }],
+  scores: [{ subject: String, marks: Number, absent: Boolean, _id: false }],
   total: Number,
   max: Number,
   percent: Number,
   grade: String,
+  gpa: Number,
+  result: { type: String, enum: ['pass', 'fail', 'absent'] },
+  failedIn: [String],
   rank: Number,
   remark: String,
 }, opts).index({ exam: 1, student: 1 }, { unique: true }))
@@ -149,6 +211,9 @@ export const Test = model('Test', new Schema({
   topic: String,
   durationMin: { type: Number, default: 30 },
   negativeMarks: { type: Number, default: 0 },
+  // Optional window: students can start only between these times.
+  startAt: Date,
+  endAt: Date,
   questions: [questionSchema],
   status: { type: String, enum: ['draft', 'published', 'closed'], default: 'draft' },
   aiGenerated: { type: Boolean, default: false },
@@ -363,7 +428,8 @@ export const Vehicle = model('Vehicle', new Schema({
   fitnessExpiry: String,
   pucExpiry: String,
   permitExpiry: String,
-  gpsDeviceId: String,
+  gpsDeviceId: String, // IMEI / identifier a GPS tracker or the Traccar Client app sends
+  trackingToken: { type: String, index: { unique: true, sparse: true } }, // secret in the driver's tracking link
   wings: wingsField,
   status: { type: String, enum: ['active', 'maintenance', 'retired'], default: 'active' },
   notes: String,
@@ -459,7 +525,7 @@ export const ActivityLog = model('ActivityLog', new Schema({
 
 // Template text uses {{placeholders}} (see CERT_FIELDS in routes/certificates.js);
 // it is filled in and frozen on each certificate when issued.
-export const CERT_KINDS = ['bonafide', 'character', 'transfer', 'merit', 'participation', 'completion', 'custom']
+export const CERT_KINDS = ['bonafide', 'character', 'transfer', 'merit', 'appreciation', 'participation', 'completion', 'custom']
 export const CERT_STYLES = ['classic', 'royal', 'modern', 'elegant']
 
 export const CertificateTemplate = model('CertificateTemplate', new Schema({
@@ -585,3 +651,44 @@ export const FinanceEntry = model('FinanceEntry', new Schema({
   createdBy: ref('User'),
   createdByName: String,
 }, opts).index({ date: -1 }).index({ type: 1, category: 1 }))
+
+/* ── Live bus tracking (central server only, never synced to desktops) ── */
+
+// Latest position of each vehicle, from the driver's phone or a GPS tracker.
+export const VehicleLocation = model('VehicleLocation', new Schema({
+  vehicle: { ...ref('Vehicle'), required: true, unique: true },
+  lat: { type: Number, required: true },
+  lng: { type: Number, required: true },
+  speed: Number, // km/h
+  heading: Number, // degrees, 0 = north
+  accuracy: Number, // metres
+  at: { type: Date, required: true }, // when the device took the fix
+  source: { type: String, enum: ['phone', 'device'] },
+}))
+
+// The path driven, for the map. Removed automatically after 3 days.
+export const VehiclePing = model('VehiclePing', new Schema({
+  vehicle: { ...ref('Vehicle'), required: true },
+  lat: Number,
+  lng: Number,
+  speed: Number,
+  at: { type: Date, required: true },
+}).index({ vehicle: 1, at: 1 }).index({ at: 1 }, { expireAfterSeconds: 3 * 86_400 }))
+
+/* ── Desktop sync ── */
+
+export const SyncTombstone = model('SyncTombstone', new Schema({
+  model: { type: String, required: true },
+  docId: { type: Schema.Types.ObjectId, required: true },
+  deletedAt: { type: Date, required: true },
+}).index({ model: 1, docId: 1 }, { unique: true }).index({ deletedAt: 1, _id: 1 }))
+
+// Desktop app only: one document holding the sync cursors and status.
+export const SyncState = model('SyncState', new Schema({
+  key: { type: String, default: 'state', unique: true },
+  cursors: { type: Schema.Types.Mixed, default: {} }, // per collection: { t, id } of the last pulled change
+  pushedAt: Date, // local changes after this are sent on the next push
+  initialized: { type: Boolean, default: false }, // first full download finished
+  lastSyncAt: Date,
+  conflicts: { type: [Schema.Types.Mixed], default: [] },
+}, { minimize: false }))

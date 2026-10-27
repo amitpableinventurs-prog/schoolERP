@@ -6,6 +6,7 @@ import { allow } from '../auth.js'
 import { FeeInstallment, FinanceEntry, Payment, Payslip, SalaryAdvance, TransportInvoice } from '../models.js'
 import { asyncHandler, escapeRegex, httpError, pick, ymd } from '../util.js'
 import { assertWing, scopeOf, studentFilter, wingFilter, wingsListFilter } from '../scope.js'
+import { seriesTag } from '../desktop.js'
 
 const router = Router()
 const finance = allow('accountant')
@@ -82,8 +83,8 @@ router.post('/finance/entries', finance, asyncHandler(async (req, res) => {
   data.wing = await wingFor(req, req.body.wing)
   data.createdBy = req.user.id
   data.createdByName = req.user.name
-  const prefix = `${data.type === 'income' ? 'INC' : 'EXP'}-${data.date.slice(0, 4)}-`
-  let seq = await FinanceEntry.countDocuments({ voucherNo: new RegExp(`^${prefix}`) })
+  const prefix = `${data.type === 'income' ? 'INC' : 'EXP'}-${data.date.slice(0, 4)}-${seriesTag()}`
+  let seq = await FinanceEntry.countDocuments({ voucherNo: new RegExp(`^${escapeRegex(prefix)}\\d+$`) })
   for (let attempt = 0; ; attempt++) {
     seq++
     try {

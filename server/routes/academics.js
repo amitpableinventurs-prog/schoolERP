@@ -3,7 +3,8 @@ import { allow, staffOnly } from '../auth.js'
 import { crudRouter } from '../crud.js'
 import { Attempt, Attendance, Batch, Doubt, Exam, Mark, Material, Notice, Paper, Student, Test, TimetableSlot } from '../models.js'
 import { attendanceSummary, getSettings } from '../insights.js'
-import { recomputeExam } from '../services.js'
+import { recomputeExam, scaleForExam } from '../services.js'
+import { prepareExam } from './exams.js'
 import { answerDoubt, draftNotice, generateMcqs, generatePaper, generateRemarks } from '../ai.js'
 import { asyncHandler, httpError, pick, ymd } from '../util.js'
 import { assertBatch, assertStudent, batchFilter, batchQuery, optionalBatchFilter, scopeOf } from '../scope.js'
@@ -98,18 +99,21 @@ router.get('/exams', staffOnly, asyncHandler(async (req, res) => {
   res.json(exams.map((e) => ({ ...e, average: map[String(e._id)]?.avg != null ? Math.round(map[String(e._id)].avg) : null, entries: map[String(e._id)]?.n || 0 })))
 }))
 
+const EXAM_FIELDS = ['name', 'type', 'term', 'date', 'subjects', 'gradeScale', 'instructions', 'published']
+
 router.post('/exams', teacher, asyncHandler(async (req, res) => {
-  const data = pick(req.body, ['name', 'batch', 'type', 'date', 'subjects', 'published'])
+  const data = pick(req.body, ['batch', ...EXAM_FIELDS])
   const batch = await Batch.findById(data.batch).lean()
   if (!batch) throw httpError(422, 'Choose a batch.')
   await assertBatch(req, batch._id)
   if (!data.subjects?.length) data.subjects = batch.subjects.map((name) => ({ name, maxMarks: 100 }))
-  res.status(201).json(await Exam.create(data))
+  res.status(201).json(await Exam.create(await prepareExam(data)))
 }))
 
 router.put('/exams/:id', teacher, asyncHandler(async (req, res) => {
-  await scoped(Exam, req)
-  const exam = await Exam.findByIdAndUpdate(req.params.id, pick(req.body, ['name', 'type', 'date', 'subjects', 'published']), { returnDocument: 'after', runValidators: true })
+  const current = await scoped(Exam, req)
+  const data = await prepareExam({ ...pick(req.body, EXAM_FIELDS), batch: current.batch, name: req.body.name || current.name }, current._id)
+  const exam = await Exam.findByIdAndUpdate(req.params.id, data, { returnDocument: 'after', runValidators: true })
   if (!exam) throw httpError(404, 'Exam not found.')
   await recomputeExam(exam._id)
   res.json(exam)
@@ -125,14 +129,15 @@ router.delete('/exams/:id', teacher, asyncHandler(async (req, res) => {
 // Marks sheet: every active student of the batch with their scores.
 router.get('/exams/:id/marks', staffOnly, asyncHandler(async (req, res) => {
   await scoped(Exam, req)
-  const exam = await Exam.findById(req.params.id).populate('batch', 'name type').lean()
+  const exam = await Exam.findById(req.params.id).populate('batch', 'name type').populate('subjects.invigilator', 'name').lean()
   if (!exam) throw httpError(404, 'Exam not found.')
-  const [students, marks] = await Promise.all([
+  const [students, marks, scale] = await Promise.all([
     Student.find({ batch: exam.batch._id, status: { $in: ['active', 'passed'] } }).sort({ rollNo: 1, name: 1 }).lean(),
     Mark.find({ exam: exam._id }).lean(),
+    scaleForExam(exam),
   ])
   const byStudent = Object.fromEntries(marks.map((m) => [String(m.student), m]))
-  res.json({ exam, rows: students.map((s) => ({ student: { _id: s._id, name: s.name, admissionNo: s.admissionNo, rollNo: s.rollNo }, mark: byStudent[String(s._id)] || null })) })
+  res.json({ exam, scale, rows: students.map((s) => ({ student: { _id: s._id, name: s.name, admissionNo: s.admissionNo, rollNo: s.rollNo }, mark: byStudent[String(s._id)] || null })) })
 }))
 
 router.put('/exams/:id/marks', teacher, asyncHandler(async (req, res) => {
@@ -143,9 +148,12 @@ router.put('/exams/:id/marks', teacher, asyncHandler(async (req, res) => {
   const ops = []
   for (const row of req.body.rows || []) {
     if (!members.has(String(row.student))) continue
+    // "AB" (or absent: true) marks the student absent for that paper.
     const scores = (row.scores || [])
-      .filter((s) => subjects.has(s.subject) && s.marks !== '' && s.marks != null)
-      .map((s) => ({ subject: s.subject, marks: Math.max(0, Math.min(maxBy[s.subject], Number(s.marks))) }))
+      .filter((s) => subjects.has(s.subject) && (s.absent || (s.marks !== '' && s.marks != null)))
+      .map((s) => (s.absent || String(s.marks).toUpperCase() === 'AB'
+        ? { subject: s.subject, absent: true }
+        : { subject: s.subject, marks: Math.max(0, Math.min(maxBy[s.subject], Number(s.marks) || 0)) }))
     const update = { scores }
     if (row.remark !== undefined) update.remark = row.remark
     ops.push({ updateOne: { filter: { exam: exam._id, student: row.student }, update: { $set: update }, upsert: true } })
@@ -167,7 +175,8 @@ router.post('/exams/:id/ai-remarks', teacher, asyncHandler(async (req, res) => {
   const rows = marks.map((m) => ({
     admissionNo: m.student.admissionNo,
     percent: m.percent, grade: m.grade, rank: m.rank, of: marks.length,
-    subjects: Object.fromEntries(m.scores.map((s) => [s.subject, `${s.marks}/${maxBy[s.subject]}`])),
+    result: m.result, failedIn: m.failedIn,
+    subjects: Object.fromEntries(m.scores.map((s) => [s.subject, s.absent ? 'absent' : `${s.marks}/${maxBy[s.subject]}`])),
     attendancePct: att.get(String(m.student._id))?.pct ?? null,
   }))
   const remarks = await generateRemarks({ examName: exam.name, batchName: exam.batch.name, rows })
@@ -188,12 +197,13 @@ export async function reportCard(examId, studentId) {
   const student = await Student.findById(studentId).lean()
   const mark = await Mark.findOne({ exam: examId, student: studentId }).lean()
   if (!exam || !student || !mark) throw httpError(404, 'Report card not available.')
-  const [settings, count, att] = await Promise.all([
+  const [settings, count, att, scale] = await Promise.all([
     getSettings(),
-    Mark.countDocuments({ exam: examId }),
+    Mark.countDocuments({ exam: examId, percent: { $ne: null } }),
     attendanceSummary({ studentIds: [student._id], days: 90 }),
+    scaleForExam(exam),
   ])
-  return { exam, student, mark, outOf: count, attendance: att.get(String(student._id)) || null, institute: settings }
+  return { exam, student, mark, outOf: count, attendance: att.get(String(student._id)) || null, institute: settings, scale }
 }
 
 /* ── Online tests ── */
@@ -213,15 +223,21 @@ router.get('/tests/:id', staffOnly, asyncHandler(async (req, res) => {
   res.json(test)
 }))
 
-const TEST_FIELDS = ['title', 'batch', 'subject', 'topic', 'durationMin', 'negativeMarks', 'questions', 'status', 'aiGenerated']
+const TEST_FIELDS = ['title', 'batch', 'subject', 'topic', 'durationMin', 'negativeMarks', 'startAt', 'endAt', 'questions', 'status', 'aiGenerated']
+
+function checkWindow(data) {
+  for (const k of ['startAt', 'endAt']) if (data[k] === '') data[k] = null
+  if (data.startAt && data.endAt && new Date(data.startAt) >= new Date(data.endAt)) throw httpError(422, 'The test must close after it opens.')
+  return data
+}
 router.post('/tests', teacher, asyncHandler(async (req, res) => {
   await assertBatch(req, req.body.batch)
-  res.status(201).json(await Test.create({ ...pick(req.body, TEST_FIELDS), createdBy: req.user.id }))
+  res.status(201).json(await Test.create({ ...checkWindow(pick(req.body, TEST_FIELDS)), createdBy: req.user.id }))
 }))
 router.put('/tests/:id', teacher, asyncHandler(async (req, res) => {
   await scoped(Test, req)
   if (req.body.batch) await assertBatch(req, req.body.batch)
-  const test = await Test.findByIdAndUpdate(req.params.id, pick(req.body, TEST_FIELDS), { returnDocument: 'after', runValidators: true })
+  const test = await Test.findByIdAndUpdate(req.params.id, checkWindow(pick(req.body, TEST_FIELDS)), { returnDocument: 'after', runValidators: true })
   if (!test) throw httpError(404, 'Test not found.')
   res.json(test)
 }))

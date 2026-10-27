@@ -129,7 +129,7 @@ export default function Certificates() {
   const set = (k) => (v) => setFilters({ ...filters, [k]: v })
   return (
     <>
-      <PageHead title="Certificates" subtitle="Issue bonafide, character, transfer, merit and other certificates with verifiable serial numbers.">
+      <PageHead title="Certificates" subtitle="Issue bonafide, character, transfer, merit, appreciation and other certificates with verifiable serial numbers.">
         <Link className="btn" to="/certificates/templates"><ScrollText size={16} /> Templates</Link>
         <button className="btn btn-primary" onClick={() => setParams({ issue: '1' })} disabled={!templates.data}><Plus size={16} /> Issue certificate</button>
       </PageHead>

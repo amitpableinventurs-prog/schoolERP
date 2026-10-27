@@ -43,9 +43,10 @@ const readLicense = () => { try { return JSON.parse(fs.readFileSync(licenseFile,
 
 // The download link names the installer SmartCampus-Setup-<KEY>.exe; the installer
 // writes its own file name next to the app (build/installer.nsh).
+const installerNameFile = path.join(path.dirname(process.execPath), 'installer-name.txt')
 function keyFromInstaller() {
   try {
-    return fs.readFileSync(path.join(path.dirname(process.execPath), 'installer-name.txt'), 'utf8').match(KEY_RX)?.[0].toUpperCase() || null
+    return fs.readFileSync(installerNameFile, 'utf8').match(KEY_RX)?.[0].toUpperCase() || null
   } catch {
     return process.env.SC_ACTIVATION_KEY || null
   }
@@ -91,10 +92,31 @@ const sendStatus = (status) => startWindow?.webContents.send('status', status)
 function openMain() {
   mainWindow = new BrowserWindow({
     width: 1366, height: 860, minWidth: 1000, minHeight: 640, show: false, autoHideMenuBar: true, title: 'Smart Campus ERP',
-    webPreferences: { contextIsolation: true, sandbox: true },
+    // The preload only adds "Use a different key" for the lock screen.
+    webPreferences: { preload: path.join(here, 'preload.cjs'), contextIsolation: true, sandbox: true },
   })
-  mainWindow.maximize()
-  mainWindow.once('ready-to-show', () => { mainWindow.show(); startWindow?.destroy() })
+  // maximize() on a hidden window shows it early, after which 'ready-to-show' may never
+  // come - so reveal on whichever happens first, and replace the start window then.
+  let shown = false
+  const reveal = () => {
+    if (shown || !mainWindow) return
+    shown = true
+    mainWindow.maximize()
+    mainWindow.show()
+    mainWindow.focus()
+    startWindow?.destroy()
+  }
+  mainWindow.once('ready-to-show', reveal)
+  mainWindow.webContents.once('did-finish-load', reveal)
+  setTimeout(reveal, 15_000)
+  const home = `http://127.0.0.1:${serverPort}/`
+  // A crashed or failed page loads again instead of leaving a blank window.
+  mainWindow.webContents.on('render-process-gone', (event, details) => {
+    if (details.reason !== 'clean-exit') setTimeout(() => mainWindow?.reload(), 1000)
+  })
+  mainWindow.webContents.on('did-fail-load', (event, code, description, url, isMainFrame) => {
+    if (isMainFrame && code !== -3) setTimeout(() => mainWindow?.loadURL(home), 2000)
+  })
   // Links meant for a browser (WhatsApp, verify pages, downloads) open outside the app.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith(`http://127.0.0.1:${serverPort}/`)) return { action: 'allow' }
@@ -102,7 +124,16 @@ function openMain() {
     return { action: 'deny' }
   })
   mainWindow.on('closed', () => { mainWindow = null })
-  mainWindow.loadURL(`http://127.0.0.1:${serverPort}/`)
+  mainWindow.loadURL(home)
+}
+
+// Forgets the licence and restarts at the activation screen. The local data stays.
+async function changeKey() {
+  const { response } = await dialog.showMessageBox(startWindow || mainWindow, { type: 'warning', buttons: ['Cancel', 'Change key'], defaultId: 0, message: 'Enter a different activation key?', detail: 'Unsynced changes stay on this computer and are sent with the new key if it is for the same institute.' })
+  if (response !== 1) return
+  fs.rmSync(licenseFile, { force: true })
+  app.relaunch()
+  app.exit(0)
 }
 
 function buildMenu() {
@@ -111,13 +142,7 @@ function buildMenu() {
       { label: 'Reload', accelerator: 'F5', click: () => mainWindow?.reload() },
       { label: 'Open data folder', click: () => shell.openPath(dataDir) },
       { type: 'separator' },
-      { label: 'Change activation key…', click: async () => {
-        const { response } = await dialog.showMessageBox({ type: 'warning', buttons: ['Cancel', 'Change key'], defaultId: 0, message: 'Enter a different activation key?', detail: 'Unsynced changes stay on this computer and are sent with the new key if it is for the same institute.' })
-        if (response !== 1) return
-        fs.rmSync(licenseFile, { force: true })
-        app.relaunch()
-        app.exit(0)
-      } },
+      { label: 'Change activation key…', click: changeKey },
       { type: 'separator' },
       { role: 'quit' },
     ] },
@@ -212,6 +237,8 @@ async function launch() {
   }
 }
 
+ipcMain.handle('change-key', () => changeKey())
+
 ipcMain.handle('activate', async (event, { key, centralUrl }) => {
   try {
     const data = await activate(key, centralUrl)
@@ -224,13 +251,17 @@ ipcMain.handle('activate', async (event, { key, centralUrl }) => {
 
 app.whenReady().then(async () => {
   buildMenu()
-  if (readLicense()?.token) return launch()
-  // First start: activate with the key from the installer's name, or ask for it.
+  // A setup file named with a different key (SmartCampus-Setup-<KEY>.exe) switches to that key.
   const key = keyFromInstaller()
+  const saved = readLicense()
+  if (saved?.token && (!key || key === saved.key)) return launch()
+  // First start (or new key): activate with the key from the installer's name, or ask for it.
   if (key) {
     openStart('loading', { text: 'Activating this computer…' })
     try {
       await activate(key)
+      // Used once: a key changed later from the menu must not be switched back.
+      fs.rmSync(installerNameFile, { force: true })
       return launch()
     } catch (error) {
       return openStart('activate', { key, centralUrl: appConfig.centralUrl, error: error.message })

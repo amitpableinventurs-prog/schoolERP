@@ -295,6 +295,13 @@ router.put('/payroll/payslips/:id', payroll, asyncHandler(async (req, res) => {
   res.json(slip)
 }))
 
+router.delete('/payroll/payslips', payroll, asyncHandler(async (req, res) => {
+  const month = String(req.query.month || '')
+  if (!validMonth(month)) throw httpError(422, 'Month must be YYYY-MM.')
+  const result = await Payslip.deleteMany({ month, status: 'draft', ...(await wingsListFilter(req)) })
+  res.json({ deleted: result.deletedCount })
+}))
+
 router.delete('/payroll/payslips/:id', payroll, asyncHandler(async (req, res) => {
   const slip = await scopedSlip(req, req.params.id)
   if (slip.status !== 'draft') throw httpError(422, 'Only draft payslips can be deleted.')

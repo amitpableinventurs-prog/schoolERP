@@ -336,6 +336,7 @@ router.use('/materials', crudRouter(Material, {
   read: staffOnly,
   write: teacher,
   scope: optionalBatchFilter,
+  softDelete: true,
   beforeSave: async (data, req) => {
     await checkOptionalBatch(data, req)
     data.createdBy = req.user.id
@@ -360,8 +361,15 @@ router.post('/doubts/:id/ai-answer', teacher, asyncHandler(async (req, res) => {
   await scoped(Doubt, req)
   const doubt = await Doubt.findById(req.params.id).populate('batch', 'program name')
   if (!doubt) throw httpError(404, 'Doubt not found.')
-  doubt.aiAnswer = await answerDoubt({ question: doubt.question, subject: doubt.subject, level: doubt.batch?.program })
-  await doubt.save()
+  try {
+    doubt.aiAnswer = await answerDoubt({ question: doubt.question, subject: doubt.subject, level: doubt.batch?.program })
+    doubt.aiError = undefined
+    await doubt.save()
+  } catch (error) {
+    doubt.aiError = error.message
+    await doubt.save()
+    throw error
+  }
   res.json(doubt)
 }))
 

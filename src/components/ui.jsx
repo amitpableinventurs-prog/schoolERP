@@ -290,7 +290,7 @@ export function Confirm({ text, onConfirm, onClose, busy, danger = true, confirm
 
 export function AiNotice({ enabled }) {
   if (enabled !== false) return null
-  return <div className="alert alert-ai">AI is not configured. Set <code>AI_PROVIDER</code> and its API key (<code>GEMINI_API_KEY</code>, <code>OPENAI_API_KEY</code> or <code>ANTHROPIC_API_KEY</code>) in the <code>.env</code> file and restart the server to use AI features.</div>
+  return <div className="alert alert-ai">AI is not configured. Add an API key (<code>GEMINI_API_KEY</code>, <code>OPENAI_API_KEY</code> or <code>ANTHROPIC_API_KEY</code>) to the server&apos;s <code>.env</code> file and restart it. <code>AI_PROVIDER</code> is optional unless you want to choose between multiple configured providers.</div>
 }
 
 export function useAiStatus() {

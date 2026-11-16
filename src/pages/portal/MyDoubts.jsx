@@ -3,7 +3,7 @@ import { Brain, Send, Sparkles, UserCheck } from 'lucide-react'
 import { api } from '../../lib/api.js'
 import { fmtDateTime } from '../../lib/format.js'
 import Markdown from '../../components/Markdown.jsx'
-import { Async, Empty, Field, PageHead, StatusBadge, useAction, useApi } from '../../components/ui.jsx'
+import { Async, Empty, Field, PageHead, StatusBadge, useAction, useApi, useToast } from '../../components/ui.jsx'
 
 export default function MyDoubts() {
   const state = useApi('/portal/doubts')
@@ -11,13 +11,26 @@ export default function MyDoubts() {
   const [question, setQuestion] = useState('')
   const [subject, setSubject] = useState('')
   const [run, busy] = useAction()
+  const toast = useToast()
   const subjects = home.data?.student?.batch?.subjects || []
   const aiEnabled = home.data?.aiEnabled
 
   const ask = async (e) => {
     e.preventDefault()
-    const d = await run(() => api.post('/portal/doubts', { question, subject }), aiEnabled ? 'AI Tutor has answered! Your teacher will also review it.' : 'Doubt sent to your teacher.')
-    if (d) { setQuestion(''); state.reload() }
+    const d = await run(() => api.post('/portal/doubts', { question, subject }))
+    if (d) {
+      setQuestion('')
+      state.reload()
+      if (d.aiAnswer) toast('AI Tutor has answered! Your teacher will also review it.')
+      else if (aiEnabled) toast(`Doubt sent to your teacher, but AI could not answer: ${d.aiError || 'Please try again.'}`, 'error')
+      else toast('Doubt sent to your teacher. AI Tutor is not configured.')
+    }
+  }
+
+  const retryAi = async (id) => {
+    const answer = await run(() => api.post(`/portal/doubts/${id}/ai-answer`), 'AI Tutor has answered.')
+    state.reload()
+    return answer
   }
 
   return (
@@ -48,6 +61,12 @@ export default function MyDoubts() {
                 <div className="alert-ai" style={{ padding: 12, borderRadius: 8 }}>
                   <div className="small row" style={{ fontWeight: 600, marginBottom: 4 }}><Sparkles size={13} /> AI Tutor</div>
                   <div style={{ color: 'var(--text)' }}><Markdown text={d.aiAnswer} /></div>
+                </div>
+              )}
+              {!d.aiAnswer && (
+                <div className="stack">
+                  {d.aiError && <div className="alert alert-error small">{d.aiError}</div>}
+                  {aiEnabled && <button className="btn btn-sm btn-ai" style={{ alignSelf: 'flex-start' }} disabled={busy} onClick={() => retryAi(d._id)}><Sparkles size={13} /> {busy ? 'Thinking…' : 'Try AI Tutor again'}</button>}
                 </div>
               )}
               {d.teacherAnswer && (

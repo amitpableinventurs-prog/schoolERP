@@ -219,7 +219,7 @@ async function attemptReview(test, attempt) {
 }
 
 views.get('/materials', asyncHandler(async (req, res) => {
-  res.json(await Material.find({ $or: [{ batch: null }, { batch: req.student.batch._id }] }).sort({ createdAt: -1 }).lean())
+  res.json(await Material.find({ deletedAt: null, $or: [{ batch: null }, { batch: req.student.batch._id }] }).sort({ createdAt: -1 }).lean())
 }))
 
 views.get('/timetable', asyncHandler(async (req, res) => {
@@ -242,12 +242,30 @@ router.post('/doubts', asyncHandler(async (req, res) => {
   if (aiEnabled) {
     try {
       doubt.aiAnswer = await answerDoubt({ question, subject: doubt.subject, level: req.student.batch.program })
-      await doubt.save()
+      doubt.aiError = undefined
     } catch (error) {
       console.error('[ai] doubt answer failed:', error.message)
+      doubt.aiError = error.message
     }
+    await doubt.save()
   }
   res.status(201).json(doubt)
+}))
+
+router.post('/doubts/:id/ai-answer', asyncHandler(async (req, res) => {
+  if (!aiEnabled) throw httpError(503, 'AI is not configured. Please contact your institute.')
+  const doubt = await Doubt.findOne({ _id: req.params.id, student: req.student._id }).populate('batch', 'program')
+  if (!doubt) throw httpError(404, 'Doubt not found.')
+  try {
+    doubt.aiAnswer = await answerDoubt({ question: doubt.question, subject: doubt.subject, level: doubt.batch?.program })
+    doubt.aiError = undefined
+    await doubt.save()
+    res.json(doubt)
+  } catch (error) {
+    doubt.aiError = error.message
+    await doubt.save()
+    throw error
+  }
 }))
 
 /* ── LMS ── */

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { BookOpen, ExternalLink, FileText, Link2, PenSquare, Plus, Trash2, Video } from 'lucide-react'
+import { Archive, BookOpen, ExternalLink, FileText, Link2, PenSquare, Plus, RotateCcw, Trash2, Video } from 'lucide-react'
 import { api, qs } from '../../lib/api.js'
 import { fmtDate } from '../../lib/format.js'
 import { Async, Badge, BatchSelect, Empty, Field, Modal, PageHead, useAction, useApi } from '../../components/ui.jsx'
@@ -31,15 +31,19 @@ function MaterialForm({ onClose, onSaved }) {
 
 export default function Materials() {
   const [batch, setBatch] = useState('')
-  const state = useApi(`/materials${qs({ batch })}`)
+  const [archived, setArchived] = useState(false)
+  const state = useApi(`/materials${qs({ batch, archived: archived ? 'true' : '' })}`)
   const [adding, setAdding] = useState(false)
   const [run] = useAction()
   return (
     <>
       <PageHead title="Study Material" subtitle="Quick notes, links and DPPs for the student portal. For structured lessons use LMS → Courses; for homework with online submission use LMS → Assignments.">
-        <button className="btn btn-primary" onClick={() => setAdding(true)}><Plus size={16} /> Share material</button>
+        {!archived && <button className="btn btn-primary" onClick={() => setAdding(true)}><Plus size={16} /> Share material</button>}
       </PageHead>
-      <div className="filters"><BatchSelect value={batch} onChange={setBatch} /></div>
+      <div className="filters">
+        <BatchSelect value={batch} onChange={setBatch} />
+        <button className="btn" onClick={() => setArchived((value) => !value)}>{archived ? <><RotateCcw size={14} /> Active materials</> : <><Archive size={14} /> Trash / restore</>}</button>
+      </div>
       <Async state={state}>{(rows) => rows.length ? (
         <div className="grid grid-3">
           {rows.map((m) => {
@@ -51,7 +55,9 @@ export default function Materials() {
                     <span className="stat-icon"><Icon size={16} /></span>
                     <div><div className="cell-title">{m.title}</div><div className="cell-sub">{m.batch?.name || 'All batches'}{m.subject ? ` · ${m.subject}` : ''}</div></div>
                   </div>
-                  <button className="btn btn-sm btn-ghost btn-icon btn-danger" onClick={async () => { if (await run(() => api.del(`/materials/${m._id}`), 'Removed.')) state.reload() }} aria-label="Delete"><Trash2 size={14} /></button>
+                  {archived
+                    ? <button className="btn btn-sm btn-ghost btn-icon" onClick={async () => { if (await run(() => api.post(`/materials/${m._id}/restore`), 'Restored.')) state.reload() }} aria-label="Restore" title="Restore"><RotateCcw size={14} /></button>
+                    : <button className="btn btn-sm btn-ghost btn-icon btn-danger" onClick={async () => { if (await run(() => api.del(`/materials/${m._id}`), 'Moved to trash.')) state.reload() }} aria-label="Move to trash" title="Move to trash"><Trash2 size={14} /></button>}
                 </div>
                 {m.description && <p className="small text-2">{m.description}</p>}
                 <div className="row between">
@@ -62,7 +68,7 @@ export default function Materials() {
             )
           })}
         </div>
-      ) : <Empty text="Nothing shared yet." />}</Async>
+      ) : <Empty text={archived ? 'Trash is empty.' : 'Nothing shared yet.'} />}</Async>
       {adding && <MaterialForm onClose={() => setAdding(false)} onSaved={() => { setAdding(false); state.reload() }} />}
     </>
   )

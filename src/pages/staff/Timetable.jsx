@@ -56,11 +56,11 @@ export default function Timetable() {
 
   return (
     <>
-      <PageHead title="Timetable" subtitle="Weekly schedule per class/batch, or per teacher.">
+      <PageHead title="Timetable" subtitle="Weekly schedule by class/batch or by teacher. Each period is assigned to a class; room is optional.">
         {admin && view === 'batch' && batch && <button className="btn btn-primary" onClick={() => setAdding(true)}><Plus size={16} /> Add period</button>}
       </PageHead>
       <div className="filters">
-        <Segmented value={view} onChange={setView} options={[{ value: 'batch', label: 'By batch' }, { value: 'teacher', label: 'By teacher' }]} />
+        <Segmented value={view} onChange={setView} options={[{ value: 'batch', label: 'By class / batch' }, { value: 'teacher', label: 'By teacher' }]} />
         {view === 'batch' ? <BatchSelect value={batch} onChange={setBatch} allLabel="Select batch…" /> : (
           <select className="select" value={teacher} onChange={(e) => setTeacher(e.target.value)}>
             <option value="">Select teacher…</option>

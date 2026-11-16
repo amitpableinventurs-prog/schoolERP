@@ -21,7 +21,10 @@ function DoubtCard({ d, onChange, aiEnabled }) {
           <div style={{ color: 'var(--text)' }}><Markdown text={d.aiAnswer} /></div>
         </div>
       ) : (
-        <div><button className="btn btn-sm btn-ai" disabled={busy || aiEnabled === false} onClick={async () => { const r = await run(() => api.post(`/doubts/${d._id}/ai-answer`), 'AI explanation added.'); if (r) onChange() }}><Sparkles size={13} /> {busy ? 'Thinking…' : 'Get AI explanation'}</button></div>
+        <div className="stack">
+          {d.aiError && <div className="alert alert-error small">{d.aiError}</div>}
+          <div><button className="btn btn-sm btn-ai" disabled={busy || aiEnabled === false} onClick={async () => { const r = await run(() => api.post(`/doubts/${d._id}/ai-answer`), 'AI explanation added.'); onChange(); return r }}><Sparkles size={13} /> {busy ? 'Thinking…' : d.aiError ? 'Retry AI explanation' : 'Get AI explanation'}</button></div>
+        </div>
       )}
       <textarea className="textarea" placeholder="Your answer / correction for the student…" value={answer} onChange={(e) => setAnswer(e.target.value)} style={{ minHeight: 70 }} />
       <div className="row between">

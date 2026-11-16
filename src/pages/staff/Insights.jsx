@@ -17,7 +17,7 @@ export default function Insights() {
   const openPlan = async (entry) => {
     setPlan({ entry, text: null })
     const result = await run(() => api.post(`/ai/risk-plan/${entry.student._id}`))
-    setPlan(result ? { entry, text: result.plan } : null)
+    setPlan(result ? { entry, text: result.plan } : { entry, text: null, failed: true })
   }
 
   return (
@@ -68,7 +68,12 @@ export default function Insights() {
             {plan.entry.student.guardianPhone && <a className="btn btn-primary" target="_blank" rel="noreferrer" href={waLink(plan.entry.student.guardianPhone, '')}><WhatsAppIcon size={15} color="currentColor" /> WhatsApp parent</a>}
           </>
         )}>
-          {busy || !plan.text ? <div className="loading"><span className="spinner" /> Claude is preparing a plan…</div> : <Markdown text={plan.text} />}
+          {busy ? <div className="loading"><span className="spinner" /> AI is preparing a plan…</div> : plan.failed ? (
+            <div className="stack">
+              <p className="text-2">The AI plan could not be generated. Check the error notification, then try again.</p>
+              <button className="btn btn-ai" onClick={() => openPlan(plan.entry)}><Sparkles size={14} /> Retry AI plan</button>
+            </div>
+          ) : plan.text ? <Markdown text={plan.text} /> : null}
         </Modal>
       )}
     </>

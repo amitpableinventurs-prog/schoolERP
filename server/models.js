@@ -277,6 +277,7 @@ export const Material = model('Material', new Schema({
   description: String,
   dueDate: String,
   createdBy: ref('User'),
+  deletedAt: Date,
 }, opts))
 
 export const Doubt = model('Doubt', new Schema({
@@ -285,6 +286,7 @@ export const Doubt = model('Doubt', new Schema({
   subject: String,
   question: { type: String, required: true },
   aiAnswer: String,
+  aiError: String,
   teacherAnswer: String,
   answeredBy: String,
   status: { type: String, enum: ['open', 'answered'], default: 'open' },

@@ -14,7 +14,7 @@ export default function TimetableGrid({ slots, onDelete, showBatch }) {
               <div className="tt-slot" key={s._id}>
                 <div className="time">{s.start} – {s.end}</div>
                 <div style={{ fontWeight: 600 }}>{s.subject}</div>
-                <div className="small muted">{[showBatch && s.batch?.name, s.teacher?.name, s.room].filter(Boolean).join(' · ')}</div>
+                <div className="small muted">{[showBatch && s.batch?.name && `Class: ${s.batch.name}`, s.teacher?.name && `Teacher: ${s.teacher.name}`, s.room && `Room ${s.room}`].filter(Boolean).join(' · ')}</div>
                 {onDelete && <button className="btn btn-ghost btn-sm btn-icon del" onClick={() => onDelete(s)} aria-label="Remove period"><X size={13} /></button>}
               </div>
             )) : <div className="small muted">No classes</div>}

@@ -121,6 +121,7 @@ export default function Payroll() {
   const [selected, setSelected] = useState(new Set())
   const [editing, setEditing] = useState(null)
   const [deleting, setDeleting] = useState(null)
+  const [deletingDrafts, setDeletingDrafts] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [paying, setPaying] = useState(null)
   const [run, busy] = useAction()
@@ -157,6 +158,7 @@ export default function Payroll() {
         <Segmented value={status} onChange={(v) => { setStatus(v); setSelected(new Set()) }} options={[{ value: '', label: 'All' }, { value: 'draft', label: 'Draft' }, { value: 'approved', label: 'Approved' }, { value: 'paid', label: 'Paid' }]} />
         <SearchInput value={q} onChange={setQ} placeholder="Staff, department, slip no…" />
         <div className="row" style={{ gap: 6, marginLeft: 'auto', flexWrap: 'wrap' }}>
+          {summary.data?.draft > 0 && <button className="btn btn-sm btn-danger" disabled={busy} onClick={() => setDeletingDrafts(true)}><Trash2 size={13} /> Delete all drafts</button>}
           {drafts.length > 0 && <button className="btn btn-sm" disabled={busy} onClick={() => bulk('/payroll/approve', drafts.map((p) => p._id), (r) => say(`Approved ${r.updated} payslip(s).`))}><CheckCheck size={13} /> Approve {drafts.length}</button>}
           {approved.length > 0 && <button className="btn btn-sm" disabled={busy} onClick={() => bulk('/payroll/unapprove', approved.map((p) => p._id), (r) => say(`Moved ${r.updated} payslip(s) back to draft.`))}><Undo2 size={13} /> Back to draft</button>}
           {approved.length > 0 && <button className="btn btn-sm btn-primary" onClick={() => setPaying(approved)}><Banknote size={13} /> Pay {approved.length}</button>}
@@ -213,6 +215,10 @@ export default function Payroll() {
       {paying && <PayModal slips={paying} onClose={() => setPaying(null)} onDone={(r) => { setPaying(null); refresh(); say(`Paid ${r.paid} staff — ${money(r.amount)}.`) }} />}
       {deleting && <Confirm text={`Delete the draft payslip of ${deleting.staffName}? You can generate it again later.`} busy={busy} onClose={() => setDeleting(null)} onConfirm={async () => {
         if (await run(() => api.del(`/payroll/payslips/${deleting._id}`), 'Deleted.')) { setDeleting(null); refresh() }
+      }} />}
+      {deletingDrafts && <Confirm text={`Delete every draft payslip for ${monthName(month)} in your payroll scope? Approved and paid payslips will not be touched. You can generate the drafts again later.`} confirmLabel="Delete drafts" busy={busy} onClose={() => setDeletingDrafts(false)} onConfirm={async () => {
+        const result = await run(() => api.del(`/payroll/payslips${qs({ month })}`))
+        if (result) { setDeletingDrafts(false); refresh(); say(`Deleted ${result.deleted} draft payslip(s).`) }
       }} />}
     </>
   )

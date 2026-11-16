@@ -1,6 +1,6 @@
 import { useDeferredValue, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { Download, Plus } from 'lucide-react'
+import { Download, Layers, Plus } from 'lucide-react'
 import { qs } from '../../lib/api.js'
 import { TYPE_LABEL } from '../../lib/format.js'
 import StudentForm from '../../components/StudentForm.jsx'
@@ -20,7 +20,7 @@ export default function Students() {
   const [params] = useSearchParams()
   const [type, setType] = useState('')
   const [batch, setBatch] = useState(params.get('batch') || '')
-  const [status, setStatus] = useState('active')
+  const [status, setStatus] = useState('')
   const [q, setQ] = useState('')
   const query = useDeferredValue(q)
   const [adding, setAdding] = useState(false)
@@ -30,6 +30,7 @@ export default function Students() {
   return (
     <>
       <PageHead title="Students" subtitle="Everyone enrolled across school classes, college courses and coaching batches.">
+        <button className="btn" onClick={() => navigate('/batches')}><Layers size={15} /> Classes &amp; batches</button>
         <button className="btn" onClick={() => state.data && exportCsv(state.data)}><Download size={15} /> Export CSV</button>
         <button className="btn btn-primary" onClick={() => setAdding(true)}><Plus size={16} /> New admission</button>
       </PageHead>

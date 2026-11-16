@@ -107,7 +107,7 @@ const scheduled = (e) => e.subjects.length > 0 && e.subjects.every((s) => s.date
 
 export default function Exams() {
   const [batch, setBatch] = useState('')
-  const state = useApi(`/exams${qs({ batch })}`)
+  const state = useApi(batch ? `/exams${qs({ batch })}` : null, { skip: !batch })
   const [editing, setEditing] = useState(null) // {} = new
   const [deleting, setDeleting] = useState(null)
   const [run, busy] = useAction()
@@ -120,8 +120,8 @@ export default function Exams() {
         <Link className="btn" to="/exams/grades"><Scale size={15} /> Grade system</Link>
         <button className="btn btn-primary" onClick={() => setEditing({})}><Plus size={16} /> New exam</button>
       </PageHead>
-      <div className="filters"><BatchSelect value={batch} onChange={setBatch} /></div>
-      <Async state={state}>{(rows) => (
+      <div className="filters"><BatchSelect value={batch} onChange={setBatch} allLabel="Choose class / batch…" /></div>
+      {batch ? <Async state={state}>{(rows) => (
         <div className="card">
           {rows.length ? (
             <div className="table-wrap">
@@ -151,7 +151,7 @@ export default function Exams() {
             </div>
           ) : <Empty text="No exams yet." />}
         </div>
-      )}</Async>
+      )}</Async> : <Empty text="Choose a class or batch to view its exams and results separately." />}
       {editing && <ExamForm exam={editing._id ? editing : null} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); state.reload() }} />}
       {deleting && <Confirm text={`Delete ${deleting.name} and all its marks?`} busy={busy} onClose={() => setDeleting(null)} onConfirm={async () => { if (await run(() => api.del(`/exams/${deleting._id}`), 'Deleted.')) { setDeleting(null); state.reload() } }} />}
     </>

@@ -1,7 +1,7 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
-  Award, Bell, BookOpen, Bot, Brain, Bus, CalendarCheck, CalendarDays, CalendarX2, ChevronDown, ChevronLeft, ClipboardCheck, ClipboardList, Gauge,
+  ArrowLeft, Award, Bell, BookOpen, Bot, Brain, Bus, CalendarCheck, CalendarDays, CalendarX2, ChevronDown, ChevronLeft, ClipboardCheck, ClipboardList, Gauge,
   Cloud, CloudOff, GraduationCap, IndianRupee, KeyRound, RefreshCw, LayoutDashboard, LayoutGrid, LogOut, Menu, MonitorPlay, Moon, Plus, Search, Sun, Timer, Users2,
 } from 'lucide-react'
 import { can, useAuth, WING_LABEL } from '../lib/auth.jsx'
@@ -61,7 +61,8 @@ function parentMenu(user, childId) {
 // Switches between siblings, staying on the same page.
 function ChildSwitcher({ user, childId }) {
   const navigate = useNavigate()
-  const { pathname } = useLocation()
+  const location = useLocation()
+  const { pathname } = location
   if (!(user.children?.length > 1)) return null
   const change = (id) => navigate(childId ? pathname.replace(`/child/${childId}`, `/child/${id}`) : `/child/${id}`)
   return (
@@ -330,6 +331,7 @@ export default function Layout() {
       <div className="main">
         <header className="topbar">
           <button className="btn btn-ghost btn-icon" onClick={toggleMenu} aria-label="Toggle menu"><Menu size={20} /></button>
+          {pathname !== '/' && <button className="btn btn-ghost btn-icon" onClick={() => navigate(location.key === 'default' ? '/' : -1)} aria-label="Go back" title="Go back"><ArrowLeft size={19} /></button>}
           <div className="topbar-title hide-sm">{instituteName}</div>
           <span className="portal-pill hide-md">{portal.name}</span>
           {isStaff && (

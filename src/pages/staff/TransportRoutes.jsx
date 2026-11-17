@@ -1,7 +1,8 @@
-import { useState } from 'react'
-import { Clock, GripVertical, LocateFixed, MapPin, MapPinned, Pencil, Plus, Route as RouteIcon, Trash2, Users } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Clock, GripVertical, LocateFixed, MapPin, MapPinned, Pencil, Plus, Route as RouteIcon, Search, Trash2, Users } from 'lucide-react'
 import LiveMap from '../../components/LiveMap.jsx'
 import { api } from '../../lib/api.js'
+import { geocode, loadGoogleMaps } from '../../lib/googleMaps.js'
 import { myWings, useAuth, WING_LABEL } from '../../lib/auth.jsx'
 import { money } from '../../lib/format.js'
 import { Async, Badge, Confirm, Empty, Field, Modal, PageHead, SearchInput, StatusBadge, useAction, useApi, WingPicker } from '../../components/ui.jsx'
@@ -56,7 +57,27 @@ function StopPicker({ stop, others, onClose, onPick }) {
   const [point, setPoint] = useState(stop.lat != null ? { lat: stop.lat, lng: stop.lng } : null)
   const [text, setText] = useState(stop.lat != null ? `${stop.lat}, ${stop.lng}` : '')
   const [error, setError] = useState(null)
+  const [google, setGoogle] = useState(null)
+  const [place, setPlace] = useState('')
+  const [searching, setSearching] = useState(false)
+  const [fit, setFit] = useState(0)
+  useEffect(() => { loadGoogleMaps().then(setGoogle) }, [])
   const choose = (p) => { setPoint(p); setText(`${p.lat}, ${p.lng}`); setError(null) }
+  // Google Maps only: find an address / landmark and jump there.
+  const search = async (e) => {
+    e.preventDefault()
+    if (!place.trim() || !google) return
+    setSearching(true)
+    try {
+      const found = await geocode(google.maps, place.trim())
+      choose({ lat: found.lat, lng: found.lng })
+      setFit((n) => n + 1)
+    } catch (err) {
+      setError(/denied|not authorized|not activated|REQUEST_DENIED/i.test(err.message) ? 'Place search needs the Geocoding API enabled on the Google Maps key.' : 'Place not found. Try a fuller address or a nearby landmark.')
+    } finally {
+      setSearching(false)
+    }
+  }
   const typed = (value) => {
     setText(value)
     const m = value.match(/(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)/)
@@ -74,8 +95,14 @@ function StopPicker({ stop, others, onClose, onPick }) {
       <button className="btn btn-primary" disabled={!point} onClick={() => onPick(point)}>Use this position</button>
     </>}>
       <div className="stack">
-        <p className="small muted" style={{ margin: 0 }}>Zoom in and click exactly where the bus stops. Other stops of this route are shown in blue.</p>
-        <LiveMap stops={others} picked={point} onPick={choose} fitKey="open" height={420} />
+        <p className="small muted" style={{ margin: 0 }}>{google ? 'Search the place, then zoom in and click exactly where the bus stops.' : 'Zoom in and click exactly where the bus stops.'} Other stops of this route are shown in blue.</p>
+        {google && (
+          <form className="row" style={{ gap: 8 }} onSubmit={search}>
+            <input className="input" style={{ flex: 1 }} value={place} onChange={(e) => setPlace(e.target.value)} placeholder="Search address or landmark, e.g. Vaishali Nagar, Jaipur" aria-label="Search place" />
+            <button className="btn" disabled={searching || !place.trim()}><Search size={15} /> {searching ? 'Searching…' : 'Search'}</button>
+          </form>
+        )}
+        <LiveMap stops={others} picked={point} onPick={choose} fitKey={`open-${fit}`} focusPicked={fit > 0} height={420} />
         <div className="row" style={{ gap: 8 }}>
           <input className="input mono" value={text} onChange={(e) => typed(e.target.value)} placeholder="26.9124, 75.7873 (paste from Google Maps)" />
           <button className="btn" onClick={here} title="Use this device's current location"><LocateFixed size={15} /> I am here</button>

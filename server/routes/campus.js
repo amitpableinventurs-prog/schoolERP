@@ -6,8 +6,12 @@ import { crudRouter } from '../crud.js'
 import { Banner, Batch, CalendarEvent, Exam, INSTITUTION_TYPES, StoredFile } from '../models.js'
 import { assertBatch, batchFilter, scopeOf } from '../scope.js'
 import { asyncHandler, httpError, ymd } from '../util.js'
+import { config } from '../config.js'
 
 const router = Router()
+
+// Which map the transport screens use (Google Maps when a key is set, else OpenStreetMap).
+router.get('/maps/config', (req, res) => res.json({ googleKey: config.maps.googleKey || null, mapId: config.maps.mapId }))
 const editors = allow('teacher', 'counsellor', 'accountant')
 const isDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s || ''))
 

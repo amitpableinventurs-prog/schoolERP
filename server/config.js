@@ -60,6 +60,13 @@ export const config = {
   // Other web origins (e.g. a mobile app shell) allowed to call the API with cookies.
   corsOrigins: env('CORS_ORIGINS').split(',').map((o) => o.trim().replace(/\/$/, '')).filter(Boolean),
 
+  // Google Maps for the transport maps (browser key - restrict it to your domains in
+  // Google Cloud). Empty = OpenStreetMap. The map ID enables Google's advanced markers.
+  maps: {
+    googleKey: env('GOOGLE_MAPS_API_KEY'),
+    mapId: env('GOOGLE_MAPS_MAP_ID', 'DEMO_MAP_ID'),
+  },
+
   // Outgoing email (password reset links). Brevo's HTTP API, no SMTP needed.
   mail: {
     brevoKey: env('BREVO_API_KEY'),

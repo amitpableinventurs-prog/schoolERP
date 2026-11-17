@@ -1,9 +1,78 @@
 import { useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { Pause, Pencil, Play, Plus, Trash2 } from 'lucide-react'
+import { Link, useSearchParams } from 'react-router-dom'
+import { Check, Pause, Pencil, Play, Plus, Trash2, X } from 'lucide-react'
 import { api } from '../../lib/api.js'
-import { fmtDate, money, today } from '../../lib/format.js'
-import { Async, Badge, Confirm, Empty, Field, Modal, PageHead, SearchInput, Segmented, StatusBadge, useAction, useApi } from '../../components/ui.jsx'
+import { fmtDate, fmtDateTime, money, today } from '../../lib/format.js'
+import { Async, Badge, Confirm, Empty, Field, Modal, PageHead, SearchInput, Segmented, StatusBadge, Tabs, useAction, useApi } from '../../components/ui.jsx'
+
+const REQ_TONE = { pending: 'warn', approved: 'good', rejected: 'bad', cancelled: '' }
+
+function ReviewModal({ request: r, approve, onClose, onSaved }) {
+  const stop = r.route?.stops?.find((s) => String(s._id) === String(r.stop))
+  const fee = Number(stop?.fee) > 0 ? Number(stop.fee) : Number(r.route?.monthlyFee) || r.monthlyFee || 0
+  const [form, setForm] = useState({ note: '', monthlyFee: fee })
+  const [run, busy] = useAction()
+  const submit = async (e) => {
+    e.preventDefault()
+    const body = { status: approve ? 'approved' : 'rejected', note: form.note, ...(approve ? { monthlyFee: Number(form.monthlyFee) || 0 } : {}) }
+    if (await run(() => api.put(`/transport/requests/${r._id}`, body), approve ? 'Approved — the student is now on the route.' : 'Request rejected.')) {
+      window.dispatchEvent(new Event('transport-requests-changed'))
+      onSaved()
+    }
+  }
+  return (
+    <Modal title={`${approve ? 'Approve' : 'Reject'} transport for ${r.student?.name}`} onClose={onClose} footer={<><button className="btn" onClick={onClose}>Cancel</button><button className={`btn ${approve ? 'btn-primary' : 'btn-danger'}`} form="review-form" disabled={busy}>{approve ? 'Approve' : 'Reject'}</button></>}>
+      <form id="review-form" className="form-grid" onSubmit={submit}>
+        <div className="full small text-2">
+          {r.route?.name} → <strong>{r.stopName}</strong> from {fmtDate(r.startDate)} · {[r.pickup && 'pickup', r.drop && 'drop'].filter(Boolean).join(' + ')}
+          {r.route?.vehicle?.capacity ? ` · ${r.riders}/${r.route.vehicle.capacity} seats taken` : ` · ${r.riders} riders now`}
+          {r.current && <div className="alert alert-info small" style={{ marginTop: 8 }}>Currently on {r.current.route?.name} ({r.current.stopName}). Approving ends that seat and starts the new one.</div>}
+        </div>
+        {approve && <Field label="Monthly fee (₹)"><input className="input" type="number" min={0} value={form.monthlyFee} onChange={(e) => setForm({ ...form, monthlyFee: e.target.value })} /></Field>}
+        <Field label={approve ? 'Message (optional)' : 'Reason (shown to the parent)'} full><textarea className="textarea" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} required={!approve} style={{ minHeight: 60 }} /></Field>
+      </form>
+    </Modal>
+  )
+}
+
+// Applications sent from the student / parent app.
+function Requests() {
+  const [status, setStatus] = useState('pending')
+  const state = useApi(`/transport/requests?status=${status}`)
+  const [review, setReview] = useState(null)
+  return (
+    <>
+      <div className="filters">
+        <Segmented value={status} onChange={setStatus} options={[{ value: 'pending', label: 'Waiting' }, { value: 'approved', label: 'Approved' }, { value: 'rejected', label: 'Rejected' }, { value: 'cancelled', label: 'Cancelled' }]} />
+      </div>
+      <Async state={state}>{(rows) => rows.length ? (
+        <div className="card">
+          <div className="table-wrap">
+            <table className="table">
+              <thead><tr><th>Student</th><th>Route → stop</th><th>From</th><th>Applied</th><th>Status</th><th /></tr></thead>
+              <tbody>{rows.map((r) => (
+                <tr key={r._id}>
+                  <td><Link to={`/students/${r.student?._id}`}><strong>{r.student?.name}</strong></Link><div className="cell-sub">{r.student?.admissionNo} · {r.student?.batch?.name}</div></td>
+                  <td>{r.route?.name || '—'}<div className="cell-sub">{r.stopName}{r.monthlyFee ? ` · ${money(r.monthlyFee)}/mo` : ''} · {[r.pickup && 'pickup', r.drop && 'drop'].filter(Boolean).join(' + ')}</div>{r.note && <div className="small text-2">“{r.note}”</div>}</td>
+                  <td className="nowrap">{fmtDate(r.startDate)}</td>
+                  <td className="small">{fmtDateTime(r.createdAt)}<div className="cell-sub">by {r.requestedByName} ({r.requestedByRole})</div></td>
+                  <td><Badge tone={REQ_TONE[r.status]}>{r.status}</Badge>{r.reviewNote && <div className="small muted">{r.reviewNote}</div>}</td>
+                  <td>{r.status === 'pending' && (
+                    <div className="row" style={{ gap: 4, flexWrap: 'nowrap' }}>
+                      <button className="btn btn-sm btn-primary" onClick={() => setReview({ r, approve: true })}><Check size={13} /> Approve</button>
+                      <button className="btn btn-sm btn-ghost btn-icon btn-danger" onClick={() => setReview({ r, approve: false })} aria-label="Reject"><X size={14} /></button>
+                    </div>
+                  )}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        </div>
+      ) : <Empty text={status === 'pending' ? 'No transport applications waiting.' : 'Nothing here.'} />}</Async>
+      {review && <ReviewModal request={review.r} approve={review.approve} onClose={() => setReview(null)} onSaved={() => { setReview(null); state.reload() }} />}
+    </>
+  )
+}
 
 function AssignmentForm({ item, onClose, onSaved }) {
   const routes = useApi('/transport/routes?status=active')
@@ -70,6 +139,22 @@ function AssignmentForm({ item, onClose, onSaved }) {
 }
 
 export default function TransportAssignments() {
+  const [params, setParams] = useSearchParams()
+  const tab = params.get('tab') === 'requests' ? 'requests' : 'riders'
+  const tabs = <Tabs value={tab} onChange={(v) => setParams(v === 'requests' ? { tab: 'requests' } : {}, { replace: true })} tabs={[{ value: 'riders', label: 'Students on routes' }, { value: 'requests', label: 'Applications from the app' }]} />
+  if (tab === 'requests') {
+    return (
+      <>
+        <PageHead title="Student Assignments" subtitle="Transport applications sent by students and parents from the app. Approving puts the student on the route." />
+        {tabs}
+        <Requests />
+      </>
+    )
+  }
+  return <Riders tabs={tabs} />
+}
+
+function Riders({ tabs }) {
   const [status, setStatus] = useState('active')
   const [routeId, setRouteId] = useState('')
   const [q, setQ] = useState('')
@@ -89,6 +174,7 @@ export default function TransportAssignments() {
       <PageHead title="Student Assignments" subtitle="Which students ride which route, where they board, and the monthly fee locked at assignment time.">
         <button className="btn btn-primary" onClick={() => setEditing({})}><Plus size={16} /> Assign student</button>
       </PageHead>
+      {tabs}
       <div className="filters">
         <SearchInput value={q} onChange={setQ} placeholder="Filter by student name or admission #…" />
         <select className="select" value={routeId} onChange={(e) => setRouteId(e.target.value)}>

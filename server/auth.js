@@ -15,16 +15,18 @@ export function setSessionCookie(res, user) {
   res.cookie(cookieName, token, {
     httpOnly: true,
     // Strict: the cookie is never sent on cross-site requests, which blocks CSRF.
-    sameSite: 'strict',
+    // Only when other origins are explicitly allowed (CORS_ORIGINS, e.g. a mobile app
+    // shell) must it travel cross-site; the CORS allow-list then guards the API.
+    sameSite: config.corsOrigins.length ? 'none' : 'strict',
     // The desktop app talks to its own server over plain http://127.0.0.1.
-    secure: config.isProduction && config.mode !== 'desktop',
+    secure: (config.isProduction || config.corsOrigins.length > 0) && config.mode !== 'desktop',
     path: '/api',
     maxAge: sessionDays * 24 * 60 * 60 * 1000,
   })
 }
 
 export function clearSessionCookie(res) {
-  res.clearCookie(cookieName, { path: '/api' })
+  res.clearCookie(cookieName, { path: '/api', ...(config.corsOrigins.length ? { sameSite: 'none', secure: true } : {}) })
 }
 
 // Role, wings and active status are read from the database on every request, so a

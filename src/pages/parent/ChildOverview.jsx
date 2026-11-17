@@ -1,9 +1,11 @@
 import { Link } from 'react-router-dom'
-import { Bell, CalendarDays, CalendarX2, ClipboardCheck, ClipboardList, GraduationCap, IndianRupee, MonitorPlay, Phone } from 'lucide-react'
+import { Bell, CalendarDays, CalendarRange, CalendarX2, ClipboardCheck, ClipboardList, GraduationCap, IndianRupee, MonitorPlay, Phone, UserRound } from 'lucide-react'
 import { useAuth } from '../../lib/auth.jsx'
 import { assignmentState, fmtDate, money, TYPE_LABEL } from '../../lib/format.js'
 import { useScope } from '../../lib/scope.jsx'
-import { Async, Badge, Empty, Meter, PageHead, StatTile, useApi } from '../../components/ui.jsx'
+import BannerCarousel from '../../components/BannerCarousel.jsx'
+import { UpcomingList } from '../../components/MonthCalendar.jsx'
+import { Async, Avatar, Badge, Empty, Meter, PageHead, StatTile, useApi } from '../../components/ui.jsx'
 
 // A parent's dashboard for one child.
 export default function ChildOverview() {
@@ -16,10 +18,17 @@ export default function ChildOverview() {
       const first = s.name.split(' ')[0]
       return (
         <>
-          <PageHead title={s.name} subtitle={`${s.batch.name} · ${TYPE_LABEL[s.batch.type]} · Admission no. ${s.admissionNo} · Roll no. ${s.rollNo ?? '—'} · Class teacher: ${s.batch.classTeacher?.name || '—'}`}>
-            <Link className="btn" to={to('leaves')}><CalendarX2 size={15} /> Apply for leave</Link>
-            {institute?.phone && <a className="btn" href={`tel:${institute.phone}`}><Phone size={15} /> Call school</a>}
-          </PageHead>
+          <BannerCarousel banners={d.banners} />
+          <div className="row mb" style={{ gap: 14, flexWrap: 'nowrap', alignItems: 'center' }}>
+            <Link to={to('profile')} aria-label={`${first}'s profile`}><Avatar name={s.name} photo={s.photo} size="lg" /></Link>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <PageHead title={s.name} subtitle={`${s.batch?.name || ''} · ${TYPE_LABEL[s.batch?.type] || ''} · Admission no. ${s.admissionNo} · Roll no. ${s.rollNo ?? '—'} · Class teacher: ${s.batch?.classTeacher?.name || '—'}`}>
+                <Link className="btn" to={to('profile')}><UserRound size={15} /> Profile & guardian info</Link>
+                <Link className="btn" to={to('leaves')}><CalendarX2 size={15} /> Apply for leave</Link>
+                {institute?.phone && <a className="btn" href={`tel:${institute.phone}`}><Phone size={15} /> Call school</a>}
+              </PageHead>
+            </div>
+          </div>
 
           <div className="grid grid-4 mb">
             <StatTile icon={ClipboardCheck} label="Attendance (30 days)" value={d.attendance?.pct != null ? `${d.attendance.pct}%` : '—'} foot={d.attendance ? `${d.attendance.present} present · ${d.attendance.absent} absent · ${d.attendance.leave} leave` : ''} tone={d.attendance?.pct < 75 ? 'bad' : 'good'} />
@@ -62,6 +71,11 @@ export default function ChildOverview() {
             </div>
           </div>
 
+          <div className="card mb">
+            <div className="card-head"><h2 className="row"><CalendarRange size={17} /> Coming up</h2><Link to={to('calendar')} className="small">Calendar →</Link></div>
+            <div className="card-body stack"><UpcomingList items={d.upcoming} /></div>
+          </div>
+
           <div className="grid grid-3">
             <div className="card">
               <div className="card-head"><h2 className="row"><CalendarDays size={17} /> Today&apos;s classes</h2><Link to={to('timetable')} className="small">Week →</Link></div>
@@ -72,7 +86,7 @@ export default function ChildOverview() {
               </div>
             </div>
             <div className="card">
-              <div className="card-head"><h2 className="row"><GraduationCap size={17} /> Tests</h2><Link to={to('tests')} className="small">All →</Link></div>
+              <div className="card-head"><h2 className="row"><GraduationCap size={17} /> MCQ tests</h2><Link to={to('tests')} className="small">All →</Link></div>
               <div className="card-body stack">
                 {d.pendingTests.length ? d.pendingTests.map((t) => (
                   <div key={t._id}><strong>{t.title}</strong><div className="small muted">Not attempted yet · {t.questions} questions · {t.durationMin} min</div></div>

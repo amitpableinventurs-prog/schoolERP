@@ -36,7 +36,7 @@ router.get('/children', asyncHandler(async (req, res) => {
     const pending = assignments.filter((a) => String(a.batch) === String(c.batch?._id) && !done.has(String(a._id)))
     const courses = await coursesForStudent(c)
     out.push({
-      _id: c._id, name: c.name, admissionNo: c.admissionNo, rollNo: c.rollNo, status: c.status,
+      _id: c._id, name: c.name, admissionNo: c.admissionNo, rollNo: c.rollNo, status: c.status, photo: c.photo,
       batch: c.batch && { _id: c.batch._id, name: c.batch.name, type: c.batch.type, program: c.batch.program, classTeacher: c.batch.classTeacher },
       attendance: att.get(String(c._id)) || null,
       feeBalance: fees.reduce((a, f) => a + f.balance, 0),

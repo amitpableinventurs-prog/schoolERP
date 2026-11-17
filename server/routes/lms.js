@@ -2,7 +2,7 @@
 // submissions and grading, and leave applications from parents/students.
 import { Router } from 'express'
 import { allow, staffOnly } from '../auth.js'
-import { Assignment, Batch, Course, CourseProgress, LeaveRequest, Student, Submission } from '../models.js'
+import { Assignment, Batch, Course, CourseProgress, LeaveRequest, Student, StoredFile, Submission } from '../models.js'
 import { applyLeaveToAttendance, lessonIds, progressOf } from '../services.js'
 import { asyncHandler, httpError, pick, ymd } from '../util.js'
 import { blankToNull } from '../crud.js'
@@ -157,6 +157,18 @@ router.get('/courses/:id/progress', staffOnly, asyncHandler(async (req, res) => 
 
 const ASSIGNMENT_FIELDS = ['title', 'instructions', 'batch', 'subject', 'course', 'url', 'dueDate', 'maxMarks', 'allowLate', 'status']
 
+// Question-sheet files (uploaded with purpose "assignment") → stored attachment list.
+async function assignmentData(req) {
+  const data = blankToNull(pick(req.body, ASSIGNMENT_FIELDS))
+  if (Array.isArray(req.body.attachments)) {
+    const ids = [...new Set(req.body.attachments.map((x) => String(x?.file || x)))].slice(0, 5)
+    const files = await StoredFile.find({ _id: { $in: ids.filter((id) => /^[a-f0-9]{24}$/i.test(id)) }, purpose: 'assignment' }, 'name mime size').lean()
+    if (files.length !== ids.length) throw httpError(422, 'One of the attached files could not be found. Please attach it again.')
+    data.attachments = files.map((f) => ({ file: f._id, name: f.name, mime: f.mime, size: f.size }))
+  }
+  return data
+}
+
 router.get('/assignments', staffOnly, asyncHandler(async (req, res) => {
   const filter = await batchQuery(req, req.query.batch)
   if (req.query.status) filter.status = req.query.status
@@ -179,7 +191,7 @@ router.get('/assignments', staffOnly, asyncHandler(async (req, res) => {
 }))
 
 router.post('/assignments', teacher, asyncHandler(async (req, res) => {
-  const data = blankToNull(pick(req.body, ASSIGNMENT_FIELDS))
+  const data = await assignmentData(req)
   if (!(await Batch.exists({ _id: data.batch }))) throw httpError(422, 'Choose a batch.')
   await assertBatch(req, data.batch)
   res.status(201).json(await Assignment.create({ ...data, createdBy: req.user.id, teacherName: req.user.name }))
@@ -188,7 +200,7 @@ router.post('/assignments', teacher, asyncHandler(async (req, res) => {
 router.put('/assignments/:id', teacher, asyncHandler(async (req, res) => {
   await scopedAssignment(req)
   if (req.body.batch) await assertBatch(req, req.body.batch)
-  const a = await Assignment.findByIdAndUpdate(req.params.id, blankToNull(pick(req.body, ASSIGNMENT_FIELDS)), { returnDocument: 'after', runValidators: true })
+  const a = await Assignment.findByIdAndUpdate(req.params.id, await assignmentData(req), { returnDocument: 'after', runValidators: true })
   if (!a) throw httpError(404, 'Assignment not found.')
   res.json(a)
 }))

@@ -1,5 +1,6 @@
 // Printable exam documents: report card, admit card and combined term report.
 import { fmtDate, timeRange, TYPE_LABEL } from '../lib/format.js'
+import { fileUrl } from '../lib/files.js'
 import { Letterhead } from './Documents.jsx'
 
 const R = { textAlign: 'right' }
@@ -26,26 +27,29 @@ function GradeKey({ scale }) {
 }
 
 export function ReportCardDoc({ data }) {
-  const { exam, student, mark, outOf, attendance, institute, scale } = data
-  const bySubject = Object.fromEntries(exam.subjects.map((s) => [s.name, s]))
+  const { exam, student, mark, outOf, attendance, institute = {}, scale } = data
+  const subjects = exam?.subjects || []
+  const scores = mark?.scores || []
+  const bySubject = Object.fromEntries(subjects.map((s) => [s.name, s]))
   const passPercent = scale?.passPercent ?? institute.passPercent ?? 35
-  const passMark = (s) => s.passMarks ?? Math.ceil((s.maxMarks * passPercent) / 100)
+  const passMark = (s) => s.passMarks ?? Math.ceil(((s.maxMarks || 0) * passPercent) / 100)
   const result = mark.result || (mark.percent >= passPercent ? 'pass' : 'fail')
   const band = scale?.bands?.find((b) => b.grade === mark.grade)
+  const batch = exam.batch || {}
   return (
     <div className="doc">
       <Letterhead institute={institute} title="Report Card" right={<div className="muted">{exam.name}{exam.term ? ` · ${exam.term}` : ''} · {fmtDate(exam.date)}</div>} />
       <table>
         <tbody>
           <tr><th>Student</th><td>{student.name}</td><th>Admission no.</th><td>{student.admissionNo}</td></tr>
-          <tr><th>Class / batch</th><td>{exam.batch.name} ({TYPE_LABEL[exam.batch.type]})</td><th>Roll no.</th><td>{student.rollNo}</td></tr>
-          <tr><th>Guardian</th><td>{student.guardianName}</td><th>Attendance (90 days)</th><td>{attendance ? `${attendance.pct}% (${attendance.present}/${attendance.total})` : '—'}</td></tr>
+          <tr><th>Class / batch</th><td>{batch.name || '—'}{batch.type ? ` (${TYPE_LABEL[batch.type]})` : ''}</td><th>Roll no.</th><td>{student.rollNo ?? '—'}</td></tr>
+          <tr><th>Guardian</th><td>{student.guardianName || '—'}</td><th>Attendance (90 days)</th><td>{attendance ? `${attendance.pct}% (${attendance.present}/${attendance.total})` : '—'}</td></tr>
         </tbody>
       </table>
       <table>
         <thead><tr><th>Subject</th><th style={R}>Max</th><th style={R}>Pass</th><th style={R}>Obtained</th><th style={R}>%</th></tr></thead>
         <tbody>
-          {mark.scores.filter((s) => bySubject[s.subject]).map((s) => {
+          {scores.filter((s) => bySubject[s.subject]).map((s) => {
             const sub = bySubject[s.subject]
             return (
               <tr key={s.subject}>
@@ -53,7 +57,7 @@ export function ReportCardDoc({ data }) {
                 <td style={R}>{sub.maxMarks}</td>
                 <td style={R}>{passMark(sub)}</td>
                 <td style={R}>{s.absent ? 'AB' : s.marks}</td>
-                <td style={R}>{s.absent ? '—' : `${Math.round((s.marks / sub.maxMarks) * 100)}%`}</td>
+                <td style={R}>{s.absent || !sub.maxMarks || s.marks == null ? '—' : `${Math.round((s.marks / sub.maxMarks) * 100)}%`}</td>
               </tr>
             )
           })}
@@ -65,7 +69,7 @@ export function ReportCardDoc({ data }) {
           <th>Grade</th><td>{mark.grade}{band?.remark ? ` (${band.remark})` : ''}</td>
           {mark.gpa != null && <><th>Grade point</th><td>{mark.gpa}</td></>}
           <th>Rank</th><td>{mark.rank ?? '—'} of {outOf}</td>
-          <th>Result</th><td>{RESULT_LABEL[result]}</td>
+          <th>Result</th><td>{RESULT_LABEL[result] || '—'}</td>
         </tr></tbody>
       </table>
       {mark.failedIn?.length > 0 && <p className="small" style={{ marginTop: 6 }}>* Below pass marks in: {mark.failedIn.join(', ')}</p>}
@@ -87,7 +91,7 @@ const DEFAULT_ADMIT_RULES = [
 ].join('\n')
 
 export function AdmitCardDoc({ exam, student, institute }) {
-  const papers = [...exam.subjects].sort((a, b) => `${a.date}${a.start}`.localeCompare(`${b.date}${b.start}`))
+  const papers = [...(exam.subjects || [])].sort((a, b) => `${a.date}${a.start}`.localeCompare(`${b.date}${b.start}`))
   return (
     <div className="doc admit-card">
       <Letterhead institute={institute} title="Admit Card" right={<div className="muted">{exam.name}{exam.term ? ` · ${exam.term}` : ''}<br />Session {institute.academicYear}</div>} />
@@ -95,11 +99,11 @@ export function AdmitCardDoc({ exam, student, institute }) {
         <table style={{ marginTop: 0 }}>
           <tbody>
             <tr><th>Candidate</th><td><strong>{student.name}</strong></td><th>Roll no.</th><td><strong>{student.rollNo ?? '—'}</strong></td></tr>
-            <tr><th>Admission no.</th><td>{student.admissionNo}</td><th>Class / batch</th><td>{exam.batch.name}</td></tr>
+            <tr><th>Admission no.</th><td>{student.admissionNo}</td><th>Class / batch</th><td>{exam.batch?.name || '—'}</td></tr>
             <tr><th>Guardian</th><td>{student.guardianName || '—'}</td><th>Date of birth</th><td>{student.dob ? fmtDate(student.dob) : '—'}</td></tr>
           </tbody>
         </table>
-        <div className="admit-photo">Affix<br />photograph</div>
+        {student.photo ? <img className="admit-photo" src={fileUrl(student.photo)} alt="" style={{ objectFit: 'cover' }} /> : <div className="admit-photo">Affix<br />photograph</div>}
       </div>
       <table>
         <thead><tr><th>Date</th><th>Time</th><th>Subject</th><th>Room</th><th>Invigilator&apos;s sign</th></tr></thead>

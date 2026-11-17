@@ -1,10 +1,84 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Bus, Clock, MapPin, Navigation, Phone, Route as RouteIcon } from 'lucide-react'
-import { fmtDate, money, timeAgo } from '../../lib/format.js'
+import { Bus, Clock, MapPin, Navigation, Phone, Route as RouteIcon, Send } from 'lucide-react'
+import { api as http } from '../../lib/api.js'
+import { fmtDate, money, timeAgo, today } from '../../lib/format.js'
 import { distanceM, etaMinutes, fmtDistance, FRESH_LABEL, FRESH_TONE, freshness } from '../../lib/geo.js'
 import LiveMap from '../../components/LiveMap.jsx'
-import { Async, Badge, Empty, PageHead, StatTile, StatusBadge, useApi } from '../../components/ui.jsx'
+import { Async, Badge, Empty, Field, Modal, PageHead, StatTile, StatusBadge, useAction, useApi } from '../../components/ui.jsx'
 import { useScope } from '../../lib/scope.jsx'
+
+const REQ_TONE = { pending: 'warn', approved: 'good', rejected: 'bad', cancelled: '' }
+
+// Apply for a seat (or a change of route / stop). The office approves it.
+function ApplyForm({ base, change, onClose, onSaved }) {
+  const options = useApi(`${base}/transport/options`)
+  const [form, setForm] = useState({ route: '', stop: '', pickup: true, drop: true, startDate: today(), note: '' })
+  const [run, busy] = useAction()
+  const route = (options.data || []).find((r) => r._id === form.route)
+  const stop = route?.stops.find((s) => s._id === form.stop)
+  const submit = async (e) => {
+    e.preventDefault()
+    if (await run(() => http.post(`${base}/transport/requests`, form), 'Application sent. The school office will confirm your seat.')) onSaved()
+  }
+  return (
+    <Modal title={change ? 'Change route / stop' : 'Apply for school transport'} onClose={onClose} footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn btn-primary" form="transport-form" disabled={busy || !form.stop}><Send size={15} /> {busy ? 'Sending…' : 'Send application'}</button></>}>
+      <Async state={options}>{(routes) => routes.length ? (
+        <form id="transport-form" className="form-grid" onSubmit={submit}>
+          <Field label="Route *" full>
+            <select className="select" value={form.route} onChange={(e) => setForm({ ...form, route: e.target.value, stop: '' })} required>
+              <option value="">Choose a route…</option>
+              {routes.map((r) => <option key={r._id} value={r._id}>{r.name}{r.code ? ` (${r.code})` : ''}{r.vehicle?.number ? ` · ${r.vehicle.number}` : ''}</option>)}
+            </select>
+          </Field>
+          <Field label="Your stop *" full>
+            <select className="select" value={form.stop} onChange={(e) => setForm({ ...form, stop: e.target.value })} required disabled={!route}>
+              <option value="">{route ? 'Choose the nearest stop…' : 'Choose a route first'}</option>
+              {route?.stops.map((s) => <option key={s._id} value={s._id}>{s.name}{s.pickupTime ? ` · pickup ${s.pickupTime}` : ''}{s.fee ? ` · ${money(s.fee)}/month` : ''}</option>)}
+            </select>
+          </Field>
+          {stop && (
+            <div className="full alert alert-info small">
+              <strong>{stop.name}</strong>{stop.landmark ? ` (${stop.landmark})` : ''} · Pickup {stop.pickupTime || '—'} · Drop {stop.dropTime || '—'} · Fee <strong>{money(stop.fee)}</strong> per month
+            </div>
+          )}
+          <Field label="Needed for">
+            <div className="row" style={{ gap: 14 }}>
+              <label className="check"><input type="checkbox" checked={form.pickup} onChange={(e) => setForm({ ...form, pickup: e.target.checked })} /> Morning pickup</label>
+              <label className="check"><input type="checkbox" checked={form.drop} onChange={(e) => setForm({ ...form, drop: e.target.checked })} /> Drop home</label>
+            </div>
+          </Field>
+          <Field label="Start from"><input className="input" type="date" min={today()} value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} required /></Field>
+          <Field label="Note for the office (optional)" full><textarea className="textarea" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} style={{ minHeight: 60 }} placeholder="e.g. Exact pickup point, sibling on the same bus…" /></Field>
+        </form>
+      ) : <Empty icon={Bus} text="No bus routes are open for applications yet. Please contact the school office." />}</Async>
+    </Modal>
+  )
+}
+
+function Requests({ base, requests, onChanged }) {
+  const [run] = useAction()
+  if (!requests?.length) return null
+  const cancel = async (id) => { if (await run(() => http.del(`${base}/transport/requests/${id}`), 'Application cancelled.')) onChanged() }
+  return (
+    <div className="card mb">
+      <div className="card-head"><h2>Transport applications</h2></div>
+      <div className="table-wrap">
+        <table className="table">
+          <thead><tr><th>Applied</th><th>Route & stop</th><th>From</th><th>Status</th><th /></tr></thead>
+          <tbody>{requests.map((r) => (
+            <tr key={r._id}>
+              <td className="small nowrap">{fmtDate(r.createdAt)}<div className="cell-sub">by {r.requestedByName || '—'}</div></td>
+              <td>{r.route?.name || '—'}<div className="cell-sub">{r.stopName}{r.monthlyFee ? ` · ${money(r.monthlyFee)}/mo` : ''}</div></td>
+              <td className="nowrap">{fmtDate(r.startDate)}</td>
+              <td><Badge tone={REQ_TONE[r.status]}>{r.status === 'pending' ? 'Waiting for approval' : r.status.charAt(0).toUpperCase() + r.status.slice(1)}</Badge>{r.reviewNote && <div className="small muted">{r.reviewNote}</div>}</td>
+              <td>{r.status === 'pending' && <button className="btn btn-sm" onClick={() => cancel(r._id)}>Cancel</button>}</td>
+            </tr>
+          ))}</tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
 
 // Where the bus is now, and roughly how far it is from the student's stop.
 function LiveBus({ base }) {
@@ -57,11 +131,27 @@ const monthLabel = (m) => {
 export default function MyTransport() {
   const { api, my } = useScope()
   const state = useApi(`${api}/transport`)
+  const [applying, setApplying] = useState(false)
+  const pending = state.data?.requests?.some((r) => r.status === 'pending')
   return (
     <>
-      <PageHead title={my('transport')} subtitle="Bus route, stop timings and transport fee invoices." />
-      <Async state={state}>{({ assignment, invoices, recentAttendance }) => {
-        if (!assignment) return <Empty text="No transport assignment yet. Please contact the office." />
+      <PageHead title={my('transport')} subtitle="Bus route, stop timings, transport fees, and applying for a seat.">
+        {state.data && !pending && <button className="btn btn-primary" onClick={() => setApplying(true)}><Bus size={15} /> {state.data.assignment ? 'Change route / stop' : 'Apply for transport'}</button>}
+      </PageHead>
+      {applying && <ApplyForm base={api} change={Boolean(state.data?.assignment)} onClose={() => setApplying(false)} onSaved={() => { setApplying(false); state.reload() }} />}
+      <Async state={state}>{({ assignment, invoices, recentAttendance, requests }) => {
+        if (!assignment) {
+          return (
+            <>
+              <Requests base={api} requests={requests} onChanged={state.reload} />
+              {!pending && (
+                <Empty icon={Bus} text="Not using school transport yet.">
+                  <button className="btn btn-primary" onClick={() => setApplying(true)}><Bus size={15} /> Apply for transport</button>
+                </Empty>
+              )}
+            </>
+          )
+        }
         const route = assignment.route
         const stop = (route?.stops || []).find((s) => String(s._id) === String(assignment.stop))
         const vehicle = route?.vehicle
@@ -70,6 +160,7 @@ export default function MyTransport() {
         const presentCount = recentAttendance.filter((r) => r.status === 'boarded').length
         return (
           <>
+            <Requests base={api} requests={requests} onChanged={state.reload} />
             <LiveBus base={api} />
             <div className="grid grid-3 mb">
               <StatTile icon={RouteIcon} label="Route" value={route?.name || '—'} foot={route?.code} />

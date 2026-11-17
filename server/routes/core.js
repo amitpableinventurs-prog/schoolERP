@@ -1,16 +1,21 @@
+import crypto from 'node:crypto'
 import { Router } from 'express'
 import bcrypt from 'bcryptjs'
-import { allow, clearSessionCookie, requireAuth, setSessionCookie, staffOnly, superOnly } from '../auth.js'
+import { allow, clearSessionCookie, isAdmin, requireAuth, setSessionCookie, staffOnly, superOnly } from '../auth.js'
 import { crudRouter } from '../crud.js'
 import { config } from '../config.js'
-import { Attendance, Batch, FeeInstallment, Mark, Notice, Payment, Setting, Staff, Student, User } from '../models.js'
+import { Attendance, Batch, FeeInstallment, Mark, Notice, Payment, Setting, Staff, Student, StoredFile, User } from '../models.js'
 import { atRiskStudents, attendanceSummary, dashboardStats, getSettings, installmentStatus } from '../insights.js'
 import { createFeePlan, createStudentLogin, DEFAULT_PARENT_PASSWORD, DEFAULT_STUDENT_PASSWORD, nextAdmissionNo, parentLoginId, syncParentLogin } from '../services.js'
 import { asyncHandler, httpError, pick } from '../util.js'
 import { assertBatch, assertStudent, assertWing, batchFilter, mergeWings, scopeOf, wingsListFilter } from '../scope.js'
 import { logActivity } from '../activity.js'
+import { mailEnabled, publicBase, resetEmail, sendMail } from '../mailer.js'
 
 const router = Router()
+// Never send password / reset hashes to the browser.
+const HIDDEN = '-passwordHash -resetTokenHash -resetTokenExpires'
+const sha256 = (text) => crypto.createHash('sha256').update(String(text)).digest('hex')
 
 /* ── Auth ── */
 
@@ -60,6 +65,95 @@ router.post('/auth/logout', (req, res) => {
   res.json({ ok: true })
 })
 
+/* ── Forgot password ── */
+
+// A few tries per address per 15 minutes, so the endpoints cannot be used to spam or guess.
+function tooMany(map, key, max) {
+  const now = Date.now()
+  const hit = map.get(key)
+  const entry = hit && hit.until > now ? hit : { count: 0, until: now + 15 * 60_000 }
+  entry.count++
+  map.set(key, entry)
+  if (map.size > 5000) map.clear()
+  return entry.count > max
+}
+const forgotHits = new Map()
+const resetHits = new Map()
+const RESET_MINUTES = 30
+const realEmail = (e) => (e && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) && !/\.local$/i.test(e) ? e : null)
+
+// Where a reset link can be sent: the staff login email, the student's email
+// (or the guardian's), or a guardian email saved on one of the parent's children.
+async function emailFor(user) {
+  if (user.role === 'student') {
+    const s = await Student.findById(user.student, 'email guardianEmail').lean()
+    return realEmail(s?.email) || realEmail(s?.guardianEmail)
+  }
+  if (user.role === 'parent') {
+    const kids = await Student.find({ _id: { $in: user.children || [] } }, 'guardianEmail').lean()
+    return kids.map((k) => realEmail(k.guardianEmail)).find(Boolean) || null
+  }
+  if (realEmail(user.loginId)) return user.loginId
+  const staff = user.staff && (await Staff.findById(user.staff, 'email').lean())
+  return realEmail(staff?.email)
+}
+
+// Emails a one-time link when an address is on record; otherwise (or if sending fails)
+// the request appears for the office under "Password requests". The answer is the same
+// for every login ID, so nobody can use it to find out which IDs exist.
+router.post('/auth/forgot', asyncHandler(async (req, res) => {
+  if (tooMany(forgotHits, req.ip, 5)) throw httpError(429, 'Too many requests. Please wait 15 minutes and try again.')
+  const loginId = String(req.body.loginId || '').trim().toLowerCase()
+  if (!loginId) throw httpError(422, 'Enter your login ID.')
+  const user = await User.findOne({ loginId })
+  const portal = PORTAL_ROLES[req.body.as]
+  if (user?.active && (!portal || portal.roles.includes(user.role))) {
+    const email = mailEnabled ? await emailFor(user) : null
+    let sent = false
+    if (email) {
+      const token = crypto.randomBytes(32).toString('hex')
+      user.resetTokenHash = sha256(token)
+      user.resetTokenExpires = new Date(Date.now() + RESET_MINUTES * 60_000)
+      await user.save()
+      const { instituteName } = await getSettings()
+      try {
+        await sendMail({ to: email, toName: user.name, ...resetEmail({ name: user.name, institute: instituteName, minutes: RESET_MINUTES, link: `${publicBase(req)}/reset-password?token=${token}` }) })
+        sent = true
+      } catch (error) {
+        console.error('[mail] reset email failed:', error.message)
+      }
+    }
+    if (!sent) {
+      user.resetRequestedAt = new Date()
+      await user.save()
+    }
+  }
+  res.json({
+    ok: true,
+    emailed: mailEnabled,
+    message: mailEnabled
+      ? 'If this login ID is registered, a link to reset your password has been emailed to the address on record. If no email is on record, the school office has been asked to reset your password.'
+      : 'Your request has been sent to the school office. They will reset your password and share the new one with you.',
+  })
+}))
+
+router.post('/auth/reset', asyncHandler(async (req, res) => {
+  if (tooMany(resetHits, req.ip, 10)) throw httpError(429, 'Too many tries. Please wait 15 minutes.')
+  const token = String(req.body.token || '')
+  const password = String(req.body.password || '')
+  if (password.length < 6) throw httpError(422, 'The new password must be at least 6 characters.')
+  const user = token && (await User.findOne({ resetTokenHash: sha256(token), resetTokenExpires: { $gt: new Date() } }))
+  if (!user) throw httpError(400, 'This reset link is invalid or has expired. Please ask for a new one from the login page.')
+  if (!user.active) throw httpError(403, 'Your account is disabled. Please contact the school office.')
+  user.passwordHash = await bcrypt.hash(password, 10)
+  user.resetTokenHash = undefined
+  user.resetTokenExpires = undefined
+  user.resetRequestedAt = undefined
+  await user.save()
+  const portal = Object.entries(PORTAL_ROLES).find(([, p]) => p.roles.includes(user.role))
+  res.json({ ok: true, portal: portal?.[0], login: portal?.[1].login })
+}))
+
 router.use(requireAuth)
 
 router.get('/auth/me', asyncHandler(async (req, res) => {
@@ -71,23 +165,86 @@ router.get('/auth/me', asyncHandler(async (req, res) => {
   const settings = await getSettings()
   // Parents get their linked children for the child switcher.
   const children = user.role === 'parent'
-    ? await Student.find({ _id: { $in: user.children || [] } }, 'name admissionNo batch status').populate('batch', 'name type').sort({ name: 1 }).lean()
+    ? await Student.find({ _id: { $in: user.children || [] } }, 'name admissionNo batch status photo').populate('batch', 'name type').sort({ name: 1 }).lean()
     : undefined
+  const photo = user.role === 'student' ? (await Student.findById(user.student, 'photo').lean())?.photo : undefined
   res.json({
-    user: { id: user._id, name: user.name, role: user.role, loginId: user.loginId, student: user.student, children, wings: user.role === 'superadmin' || !user.wings?.length ? null : user.wings, modules: req.modules || null },
-    institute: pick(settings, ['instituteName', 'tagline', 'phone', 'email', 'address', 'academicYear']),
+    user: { id: user._id, name: user.name, role: user.role, loginId: user.loginId, student: user.student, photo, children, wings: user.role === 'superadmin' || !user.wings?.length ? null : user.wings, modules: req.modules || null },
+    institute: { ...pick(settings, ['instituteName', 'tagline', 'phone', 'email', 'address', 'academicYear', 'logo']), appUrl: publicBase(req) },
     desktop: config.mode === 'desktop',
   })
 }))
 
 router.post('/auth/password', asyncHandler(async (req, res) => {
-  const { current, next } = req.body
-  if (!next || String(next).length < 6) throw httpError(422, 'The new password must be at least 6 characters.')
+  const current = String(req.body.current || '')
+  const next = String(req.body.next || '')
+  if (next.length < 6) throw httpError(422, 'The new password must be at least 6 characters.')
+  if (next.length > 100) throw httpError(422, 'The new password is too long.')
   const user = await User.findById(req.user.id)
-  if (!(await bcrypt.compare(String(current || ''), user.passwordHash))) throw httpError(422, 'The current password is wrong.')
-  user.passwordHash = await bcrypt.hash(String(next), 10)
+  if (!user) throw httpError(401, 'Please log in.')
+  if (!(await bcrypt.compare(current, user.passwordHash))) throw httpError(422, 'The current password is wrong.')
+  if (current === next) throw httpError(422, 'The new password must be different from the current one.')
+  user.passwordHash = await bcrypt.hash(next, 10)
+  user.resetRequestedAt = undefined
   await user.save()
   res.json({ ok: true })
+}))
+
+/* ── Forgotten-password requests (no email on record): the office resets them ── */
+
+const tempPassword = () => `${crypto.randomInt(100000, 999999)}`
+
+// Requests this user may handle: students / parents of their wings (teachers and
+// admins), and staff logins (admins: same rules as Settings → Users).
+async function resetRequestFilter(req) {
+  const scope = await scopeOf(req)
+  const kinds = []
+  if (isAdmin(req.user) || req.user.role === 'teacher') {
+    if (scope.all) kinds.push({ role: { $in: ['student', 'parent'] } })
+    else {
+      const ids = await Student.distinct('_id', { batch: { $in: scope.batchIds } })
+      kinds.push({ role: 'student', student: { $in: ids } }, { role: 'parent', children: { $in: ids } })
+    }
+  }
+  if (isAdmin(req.user)) kinds.push(await usersFilter(req))
+  return kinds.length ? { resetRequestedAt: { $ne: null }, active: true, $or: kinds } : null
+}
+
+router.get('/reset-requests', staffOnly, asyncHandler(async (req, res) => {
+  const filter = await resetRequestFilter(req)
+  if (!filter) return res.json([])
+  const users = await User.find(filter, 'name loginId role student children resetRequestedAt')
+    .populate({ path: 'student', select: 'name admissionNo guardianPhone batch', populate: { path: 'batch', select: 'name' } })
+    .populate('children', 'name admissionNo').sort({ resetRequestedAt: -1 }).limit(200).lean()
+  res.json(users)
+}))
+
+router.get('/reset-requests/count', staffOnly, asyncHandler(async (req, res) => {
+  const filter = await resetRequestFilter(req)
+  res.json({ count: filter ? await User.countDocuments(filter) : 0 })
+}))
+
+router.post('/reset-requests/:id/:action', staffOnly, asyncHandler(async (req, res) => {
+  const filter = await resetRequestFilter(req)
+  const user = filter && (await User.findOne({ ...filter, _id: req.params.id }))
+  if (!user) throw httpError(404, 'This request was already handled or is not in your wing.')
+  user.resetRequestedAt = undefined
+  if (req.params.action === 'dismiss') {
+    await user.save()
+    return res.json({ ok: true })
+  }
+  if (req.params.action !== 'reset') throw httpError(404, 'Not found.')
+  const password = String(req.body.password || '') || tempPassword()
+  if (password.length < 6) throw httpError(422, 'Password must be at least 6 characters.')
+  user.passwordHash = await bcrypt.hash(password, 10)
+  user.resetTokenHash = undefined
+  user.resetTokenExpires = undefined
+  await user.save()
+  // Where to send the new password: the guardian's / student's WhatsApp.
+  const student = user.role === 'student' ? await Student.findById(user.student, 'guardianPhone phone').lean()
+    : user.role === 'parent' ? await Student.findOne({ _id: { $in: user.children } }, 'guardianPhone').lean() : null
+  const portal = Object.values(PORTAL_ROLES).find((p) => p.roles.includes(user.role))
+  res.json({ name: user.name, loginId: user.loginId, password, phone: student?.guardianPhone || student?.phone || null, loginUrl: `${publicBase(req)}${portal?.login || '/login'}` })
 }))
 
 /* ── Settings & users (admin) ── */
@@ -95,7 +252,9 @@ router.post('/auth/password', asyncHandler(async (req, res) => {
 router.get('/settings', staffOnly, asyncHandler(async (req, res) => res.json(await getSettings())))
 
 router.put('/settings', superOnly, asyncHandler(async (req, res) => {
-  const data = pick(req.body, ['instituteName', 'tagline', 'phone', 'email', 'address', 'academicYear', 'attendanceThreshold', 'passPercent'])
+  const data = pick(req.body, ['instituteName', 'tagline', 'phone', 'email', 'address', 'academicYear', 'attendanceThreshold', 'passPercent', 'logo', 'libraryLoanDays', 'libraryFinePerDay', 'libraryMaxBooks'])
+  if (data.logo === '') data.logo = null
+  if (data.logo && !(await StoredFile.exists({ _id: data.logo, purpose: 'logo' }))) throw httpError(422, 'Upload the logo again.')
   const settings = await Setting.findOneAndUpdate({}, data, { returnDocument: 'after', upsert: true, runValidators: true })
   res.json(settings)
 }))
@@ -114,7 +273,7 @@ async function usersFilter(req) {
 router.get('/users', allow(), asyncHandler(async (req, res) => {
   const filter = await usersFilter(req)
   if (req.query.role) filter.role = String(req.query.role)
-  const users = await User.find(filter, '-passwordHash').populate('staff', 'name designation').populate('createdBy', 'name').sort({ role: 1, name: 1 }).lean()
+  const users = await User.find(filter, HIDDEN).populate('staff', 'name designation').populate('createdBy', 'name').sort({ role: 1, name: 1 }).lean()
   // A role filter must not widen what usersFilter allows.
   res.json(users.filter((u) => req.user.role === 'superadmin' ? !['student', 'parent'].includes(u.role) : STAFF_LOGIN_ROLES.includes(u.role)))
 }))
@@ -152,9 +311,10 @@ router.put('/users/:id', allow(), asyncHandler(async (req, res) => {
     if (req.body.password.length < 6) throw httpError(422, 'Password must be at least 6 characters.')
     data.passwordHash = await bcrypt.hash(req.body.password, 10)
   }
+  if (data.passwordHash) target.resetRequestedAt = undefined
   target.set(data)
   await target.save()
-  res.json({ ...target.toObject(), passwordHash: undefined })
+  res.json({ ...target.toObject(), passwordHash: undefined, resetTokenHash: undefined, resetTokenExpires: undefined })
 }))
 
 /* ── Dashboard ── */
@@ -238,7 +398,10 @@ router.use('/batches', crudRouter(Batch, {
 
 /* ── Students ── */
 
-const STUDENT_FIELDS = ['admissionNo', 'name', 'gender', 'dob', 'phone', 'email', 'guardianName', 'guardianPhone', 'address', 'batch', 'rollNo', 'admissionDate', 'status', 'notes']
+const STUDENT_FIELDS = [
+  'admissionNo', 'name', 'gender', 'dob', 'phone', 'email', 'guardianName', 'guardianPhone', 'address', 'batch', 'rollNo', 'admissionDate', 'status', 'notes',
+  'guardianRelation', 'guardianEmail', 'guardianOccupation', 'fatherName', 'motherName', 'emergencyPhone', 'bloodGroup', 'photo',
+]
 
 router.get('/students', staffOnly, asyncHandler(async (req, res) => {
   const conditions = [await batchFilter(req)]
@@ -304,6 +467,7 @@ router.put('/students/:id', allow('teacher', 'accountant', 'counsellor'), asyncH
   for (const key of Object.keys(data)) if (data[key] === '') data[key] = null
   if (data.batch === null || data.admissionNo === null || data.name === null) throw httpError(422, 'Name, admission number and batch are required.')
   await assertStudent(req, req.params.id)
+  if (data.photo && !(await StoredFile.exists({ _id: data.photo, purpose: 'photo' }))) throw httpError(422, 'Upload the photo again.')
   if (data.batch) await assertBatch(req, data.batch)
   const student = await Student.findByIdAndUpdate(req.params.id, data, { returnDocument: 'after', runValidators: true })
   if (!student) throw httpError(404, 'Student not found.')
@@ -320,6 +484,7 @@ router.post('/students/:id/reset-password', allow('teacher'), asyncHandler(async
   const user = await User.findOne({ student: student._id })
   if (user) {
     user.passwordHash = await bcrypt.hash(password, 10)
+    user.resetRequestedAt = undefined
     await user.save()
   } else {
     await createStudentLogin(student, password)
@@ -339,6 +504,7 @@ router.post('/students/:id/parent-login', allow('teacher'), asyncHandler(async (
   const parent = await syncParentLogin(student)
   if (!parent) throw httpError(409, `The ID ${loginId} is already used by a staff or student login.`)
   parent.passwordHash = await bcrypt.hash(String(password), 10)
+  parent.resetRequestedAt = undefined
   parent.active = true
   await parent.save()
   res.json({ loginId, password, children: parent.children.length })

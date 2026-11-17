@@ -1,8 +1,8 @@
 import { Link } from 'react-router-dom'
 import { ArrowRight, ClipboardList, IndianRupee, MonitorPlay, Phone } from 'lucide-react'
 import { useAuth } from '../../lib/auth.jsx'
-import { initials, money, TYPE_LABEL } from '../../lib/format.js'
-import { Async, Badge, Empty, PageHead, PctBadge, useApi } from '../../components/ui.jsx'
+import { money, TYPE_LABEL } from '../../lib/format.js'
+import { Async, Avatar, Badge, Empty, PageHead, PctBadge, useApi } from '../../components/ui.jsx'
 
 export default function ParentHome() {
   const { user, institute } = useAuth()
@@ -18,7 +18,7 @@ export default function ParentHome() {
             <Link key={k._id} to={`/child/${k._id}`} className="card card-pad stack child-card">
               <div className="row between" style={{ alignItems: 'flex-start' }}>
                 <div className="row" style={{ gap: 12 }}>
-                  <div className="avatar avatar-lg">{initials(k.name)}</div>
+                  <Avatar name={k.name} photo={k.photo} size="lg" />
                   <div>
                     <h2>{k.name}</h2>
                     <div className="small text-2">{k.batch?.name} · <span className="mono">{k.admissionNo}</span></div>

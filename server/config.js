@@ -51,6 +51,22 @@ export const config = {
     offlineGraceDays: Number(env('OFFLINE_GRACE_DAYS', 15)),
   },
 
+  // Public address of the live web portal. Every link the app sends out (password
+  // reset emails, login details shared on WhatsApp) uses it, so links never point
+  // to a test/beta copy. Empty = the address the request came in on.
+  appUrl: env('APP_URL').replace(/\/$/, ''),
+  // Old/beta addresses that should forward visitors to APP_URL (comma separated hosts).
+  redirectHosts: env('REDIRECT_HOSTS').split(',').map((h) => h.trim().toLowerCase()).filter(Boolean),
+  // Other web origins (e.g. a mobile app shell) allowed to call the API with cookies.
+  corsOrigins: env('CORS_ORIGINS').split(',').map((o) => o.trim().replace(/\/$/, '')).filter(Boolean),
+
+  // Outgoing email (password reset links). Brevo's HTTP API, no SMTP needed.
+  mail: {
+    brevoKey: env('BREVO_API_KEY'),
+    from: env('MAIL_FROM'),
+    fromName: env('MAIL_FROM_NAME', 'Smart Campus'),
+  },
+
   // Desktop app (set by the Electron shell).
   desktop: mode === 'desktop' ? {
     centralUrl: env('CENTRAL_URL').replace(/\/$/, ''),

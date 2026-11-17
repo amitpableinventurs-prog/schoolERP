@@ -2,21 +2,23 @@
 // attendance, and monthly transport invoices. Wing-scoped like the rest of the app.
 import { Router } from 'express'
 import mongoose from 'mongoose'
-import { allow, staffOnly } from '../auth.js'
+import { allow } from '../auth.js'
 import {
   Student,
   TransportAssignment,
   TransportAttendance,
   TransportInvoice,
+  TransportRequest,
   TransportRoute,
   Vehicle,
   VEHICLE_TYPES,
 } from '../models.js'
-import { asyncHandler, escapeRegex, httpError, pick, ymd } from '../util.js'
+import { addDays, asyncHandler, escapeRegex, httpError, pick, ymd } from '../util.js'
 import {
   assertStudent,
   mergeWings,
   scopeOf,
+  studentFilter,
   wingsListFilter,
 } from '../scope.js'
 
@@ -478,22 +480,113 @@ router.get('/transport/summary', transport, asyncHandler(async (req, res) => {
   })
 }))
 
+/* ── Requests from the student / parent portal ── */
+
+router.get('/transport/requests', transport, asyncHandler(async (req, res) => {
+  const filter = { ...(await studentFilter(req)) }
+  if (req.query.status) filter.status = String(req.query.status)
+  const list = await TransportRequest.find(filter)
+    .populate({ path: 'student', select: 'name admissionNo guardianName guardianPhone batch', populate: { path: 'batch', select: 'name type' } })
+    .populate({ path: 'route', select: 'name code monthlyFee stops vehicle', populate: { path: 'vehicle', select: 'number capacity' } })
+    .sort({ status: -1, createdAt: -1 }).limit(300).lean()
+  // Seats already taken on each route, to help decide.
+  const riders = await TransportAssignment.aggregate([{ $match: { status: 'active' } }, { $group: { _id: '$route', n: { $sum: 1 } } }])
+  const byRoute = Object.fromEntries(riders.map((r) => [String(r._id), r.n]))
+  const active = await TransportAssignment.find({ student: { $in: list.map((r) => r.student?._id).filter(Boolean) }, status: 'active' }, 'student stopName route').populate('route', 'name').lean()
+  const current = Object.fromEntries(active.map((a) => [String(a.student), a]))
+  res.json(list.map((r) => ({ ...r, riders: byRoute[String(r.route?._id)] || 0, current: current[String(r.student?._id)] || null })))
+}))
+
+router.get('/transport/requests/pending-count', transport, asyncHandler(async (req, res) => {
+  res.json({ count: await TransportRequest.countDocuments({ status: 'pending', ...(await studentFilter(req)) }) })
+}))
+
+// Approve (creates the student's transport assignment) or reject a request.
+router.put('/transport/requests/:id', transport, asyncHandler(async (req, res) => {
+  const request = mongoose.isValidObjectId(req.params.id) && (await TransportRequest.findById(req.params.id))
+  if (!request) throw httpError(404, 'Request not found.')
+  await assertStudent(req, request.student)
+  if (request.status !== 'pending') throw httpError(409, `This request is already ${request.status}.`)
+  const status = req.body.status
+  if (!['approved', 'rejected'].includes(status)) throw httpError(422, 'Choose approve or reject.')
+  if (status === 'approved') {
+    const route = await scopedRoute(req, request.route)
+    const stop = route.stops.find((s) => String(s._id) === String(request.stop))
+    if (!stop) throw httpError(422, 'That stop is no longer on the route. Reject the request and ask the parent to apply again.')
+    const old = await TransportAssignment.findOne({ student: request.student, status: 'active' })
+    if (old) {
+      // A change of route / stop: the old seat ends the day before the new one starts.
+      old.status = 'cancelled'
+      old.endDate = request.startDate > ymd() ? addDays(request.startDate, -1) : ymd()
+      await old.save()
+    }
+    const assignment = await TransportAssignment.create({
+      student: request.student, route: route._id, stop: stop._id, stopName: stop.name, pickup: request.pickup, drop: request.drop,
+      monthlyFee: Number(req.body.monthlyFee) || feeForStop(route, stop._id), startDate: request.startDate,
+      notes: [request.note, `Applied online by ${request.requestedByName || 'parent'}`].filter(Boolean).join(' · '),
+    })
+    request.assignment = assignment._id
+  }
+  Object.assign(request, { status, reviewedBy: req.user.name, reviewNote: String(req.body.note || '').slice(0, 500), reviewedAt: new Date() })
+  await request.save()
+  res.json(request)
+}))
+
 /* ── Views mounted on the student/parent portal ── */
 
 export async function myTransport(student) {
   const assignment = await TransportAssignment.findOne({ student: student._id, status: 'active' })
     .populate({ path: 'route', populate: { path: 'vehicle', select: 'number model driverName driverPhone conductorName conductorPhone' } })
     .lean()
-  const [invoices, recent] = await Promise.all([
+  const [invoices, recent, requests] = await Promise.all([
     TransportInvoice.find({ student: student._id }).sort({ month: -1 }).limit(24).lean(),
     TransportAttendance.find({ student: student._id }).sort({ date: -1 }).limit(30).lean(),
+    TransportRequest.find({ student: student._id }).populate('route', 'name code').sort({ createdAt: -1 }).limit(10).lean(),
   ])
   const today = ymd()
   return {
     assignment,
     invoices: invoices.map((i) => ({ ...i, liveStatus: invoiceStatus(i, today) })),
     recentAttendance: recent,
+    requests,
   }
+}
+
+// Routes a student can apply for: active routes of the student's wing, with stop fees.
+export async function transportOptions(student) {
+  const wing = student.batch?.type
+  const routes = await TransportRoute.find({ status: 'active', $or: [{ wings: wing }, { wings: { $size: 0 } }, { wings: null }] }, 'name code startTime endTime monthlyFee stops vehicle')
+    .populate('vehicle', 'number type').sort({ name: 1 }).lean()
+  return routes.filter((r) => r.stops?.length).map((r) => ({
+    _id: r._id, name: r.name, code: r.code, vehicle: r.vehicle,
+    stops: [...r.stops].sort((a, b) => (a.sequence || 0) - (b.sequence || 0)).map((s) => ({ _id: s._id, name: s.name, landmark: s.landmark, pickupTime: s.pickupTime, dropTime: s.dropTime, fee: feeForStop(r, s._id) })),
+  }))
+}
+
+export async function createTransportRequest(req, student) {
+  const { route: routeId, stop: stopId } = req.body
+  const startDate = /^\d{4}-\d{2}-\d{2}$/.test(req.body.startDate || '') ? req.body.startDate : ymd()
+  if (startDate < ymd()) throw httpError(422, 'The start date cannot be in the past.')
+  if (req.body.pickup === false && req.body.drop === false) throw httpError(422, 'Choose pickup, drop or both.')
+  const route = (await transportOptions(student)).find((r) => String(r._id) === String(routeId))
+  if (!route) throw httpError(422, 'Choose a route.')
+  const stop = route.stops.find((s) => String(s._id) === String(stopId))
+  if (!stop) throw httpError(422, 'Choose your stop on this route.')
+  if (await TransportRequest.exists({ student: student._id, status: 'pending' })) throw httpError(409, 'A transport request is already waiting for approval. Cancel it to apply again.')
+  const current = await TransportAssignment.findOne({ student: student._id, status: 'active' }, 'route stop').lean()
+  if (current && String(current.route) === String(route._id) && String(current.stop) === String(stop._id)) throw httpError(409, 'You already use this route and stop.')
+  return TransportRequest.create({
+    student: student._id, route: route._id, stop: stop._id, stopName: stop.name,
+    pickup: req.body.pickup !== false, drop: req.body.drop !== false, monthlyFee: stop.fee, startDate,
+    note: String(req.body.note || '').trim().slice(0, 500) || undefined,
+    requestedBy: req.user.id, requestedByName: req.user.name, requestedByRole: req.user.role,
+  })
+}
+
+export async function cancelTransportRequest(student, id) {
+  const request = mongoose.isValidObjectId(id) && (await TransportRequest.findOneAndUpdate({ _id: id, student: student._id, status: 'pending' }, { status: 'cancelled' }, { returnDocument: 'after' }))
+  if (!request) throw httpError(404, 'Only requests that are still waiting can be cancelled.')
+  return request
 }
 
 export default router

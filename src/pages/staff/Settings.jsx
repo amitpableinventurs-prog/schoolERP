@@ -1,9 +1,43 @@
-import { useEffect, useState } from 'react'
-import { Plus } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { ImagePlus, Plus, Trash2 } from 'lucide-react'
 import { api } from '../../lib/api.js'
 import { myWings, ROLE_NAME, useAuth } from '../../lib/auth.jsx'
+import { fileUrl, uploadFile } from '../../lib/files.js'
 import { fmtDateTime } from '../../lib/format.js'
-import { Async, Badge, Field, Loading, Modal, PageHead, Tabs, useAction, useApi, WingBadges, WingPicker } from '../../components/ui.jsx'
+import { Async, Badge, Field, Loading, Modal, PageHead, Tabs, useAction, useApi, useToast, WingBadges, WingPicker } from '../../components/ui.jsx'
+
+// School logo for receipts, report cards, admit cards and payslips.
+function LogoField({ value, onChange, disabled }) {
+  const input = useRef(null)
+  const [busy, setBusy] = useState(false)
+  const toast = useToast()
+  const pick = async (e) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    setBusy(true)
+    try {
+      onChange((await uploadFile(file, 'logo'))._id)
+    } catch (error) {
+      toast(error.message, 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="row" style={{ gap: 14 }}>
+      <div className="logo-box">{value ? <img src={fileUrl(value)} alt="School logo" /> : <span className="small muted">No logo</span>}</div>
+      {!disabled && (
+        <div className="stack" style={{ gap: 6 }}>
+          <button type="button" className="btn btn-sm" onClick={() => input.current?.click()} disabled={busy}><ImagePlus size={14} /> {busy ? 'Uploading…' : value ? 'Change logo' : 'Upload logo'}</button>
+          {value && <button type="button" className="btn btn-sm btn-ghost" onClick={() => onChange('')}><Trash2 size={13} /> Remove</button>}
+          <input ref={input} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={pick} />
+        </div>
+      )}
+      <span className="small muted" style={{ flexBasis: 260, flexGrow: 1 }}>Square PNG with a transparent background looks best. It prints on fee receipts, report cards, admit cards and payslips. Press Save after changing it.</span>
+    </div>
+  )
+}
 
 function Institute() {
   const { refresh, user } = useAuth()
@@ -15,13 +49,15 @@ function Institute() {
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value })
   const submit = async (e) => {
     e.preventDefault()
-    if (await run(() => api.put('/settings', { ...form, attendanceThreshold: Number(form.attendanceThreshold), passPercent: Number(form.passPercent) }), 'Settings saved.')) refresh()
+    const numbers = Object.fromEntries(['attendanceThreshold', 'passPercent', 'libraryLoanDays', 'libraryFinePerDay', 'libraryMaxBooks'].filter((k) => form[k] !== undefined && form[k] !== '').map((k) => [k, Number(form[k])]))
+    if (await run(() => api.put('/settings', { ...form, ...numbers, logo: form.logo || '' }), 'Settings saved.')) refresh()
   }
   return (
     <form className="card card-pad stack" onSubmit={submit} style={{ maxWidth: 760 }}>
       {locked && <div className="alert alert-info small">Institute settings are managed by the super admin.</div>}
       <fieldset disabled={locked} style={{ border: 0, padding: 0, margin: 0 }}>
       <div className="form-grid">
+        <Field label="School logo" full><LogoField value={form.logo} onChange={(logo) => setForm({ ...form, logo })} disabled={locked} /></Field>
         <Field label="Institute name"><input className="input" value={form.instituteName} onChange={set('instituteName')} required /></Field>
         <Field label="Tagline"><input className="input" value={form.tagline || ''} onChange={set('tagline')} /></Field>
         <Field label="Phone"><input className="input" value={form.phone || ''} onChange={set('phone')} /></Field>
@@ -30,6 +66,9 @@ function Institute() {
         <Field label="Academic year"><input className="input" value={form.academicYear || ''} onChange={set('academicYear')} /></Field>
         <Field label="Minimum attendance %" hint="Used for warnings and risk scoring"><input className="input" type="number" value={form.attendanceThreshold} onChange={set('attendanceThreshold')} /></Field>
         <Field label="Pass percentage"><input className="input" type="number" value={form.passPercent} onChange={set('passPercent')} /></Field>
+        <Field label="Library: loan period (days)"><input className="input" type="number" min={1} value={form.libraryLoanDays ?? 14} onChange={set('libraryLoanDays')} /></Field>
+        <Field label="Library: late fine per day (₹)"><input className="input" type="number" min={0} value={form.libraryFinePerDay ?? 2} onChange={set('libraryFinePerDay')} /></Field>
+        <Field label="Library: books a student can keep"><input className="input" type="number" min={1} value={form.libraryMaxBooks ?? 3} onChange={set('libraryMaxBooks')} /></Field>
       </div>
       </fieldset>
       {!locked && <div><button className="btn btn-primary" disabled={busy}>Save</button></div>}

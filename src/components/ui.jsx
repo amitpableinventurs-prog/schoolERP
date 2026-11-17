@@ -1,7 +1,118 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useCallback, useContext, useEffect, useState } from 'react'
-import { AlertTriangle, CheckCircle2, Inbox, Search, X } from 'lucide-react'
+import { Component, createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
+import { AlertTriangle, CheckCircle2, Eye, EyeOff, FileText, Image as ImageIcon, Inbox, Paperclip, Search, X } from 'lucide-react'
 import { api } from '../lib/api.js'
+import { initials } from '../lib/format.js'
+import { fileUrl, fmtSize, uploadFile } from '../lib/files.js'
+
+/* ── Crash guard ── */
+
+// A page that fails to render shows a message instead of taking the whole app down
+// (on phones a blank WebView looks like the app "closed").
+export class ErrorBoundary extends Component {
+  constructor(props) {
+    super(props)
+    this.state = { error: null }
+  }
+
+  static getDerivedStateFromError(error) {
+    return { error }
+  }
+
+  componentDidCatch(error, info) {
+    console.error('[page error]', error, info?.componentStack)
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children
+    return (
+      <div className="card card-pad stack" style={{ maxWidth: 560, margin: '24px auto' }}>
+        <h2 className="row"><AlertTriangle size={18} /> This page could not be shown</h2>
+        <p className="text-2">Something in this page&apos;s data was unexpected. The rest of the app still works.</p>
+        <div className="row">
+          <button className="btn btn-primary" onClick={() => this.setState({ error: null })}>Try again</button>
+          <a className="btn" href="/">Go to home</a>
+        </div>
+      </div>
+    )
+  }
+}
+
+// Password box with a show / hide eye (typing on a phone keyboard is error-prone).
+export function PasswordInput({ value, onChange, autoComplete = 'new-password', ...rest }) {
+  const [show, setShow] = useState(false)
+  return (
+    <div className="pw-wrap">
+      <input className="input" type={show ? 'text' : 'password'} value={value} onChange={onChange} autoComplete={autoComplete} autoCapitalize="none" autoCorrect="off" spellCheck={false} {...rest} />
+      <button type="button" className="pw-eye" onClick={() => setShow(!show)} aria-label={show ? 'Hide password' : 'Show password'} tabIndex={-1}>{show ? <EyeOff size={16} /> : <Eye size={16} />}</button>
+    </div>
+  )
+}
+
+/* ── People & files ── */
+
+export function Avatar({ name, photo, size }) {
+  const cls = `avatar${size === 'lg' ? ' avatar-lg' : size === 'xl' ? ' avatar-xl' : ''}`
+  return photo
+    ? <img className={`${cls} avatar-img`} src={fileUrl(photo)} alt={name ? `${name}'s photo` : ''} />
+    : <span className={cls}>{initials(name)}</span>
+}
+
+// Links to uploaded files (homework, question sheets). Opens in a new tab.
+export function Attachments({ files, onRemove }) {
+  if (!files?.length) return null
+  return (
+    <div className="attach-list">
+      {files.map((f, i) => {
+        const id = f.file?._id || f.file || f._id
+        const Icon = f.mime === 'application/pdf' ? FileText : ImageIcon
+        return (
+          <span key={`${id}-${i}`} className="attach">
+            <a href={fileUrl(id)} target="_blank" rel="noreferrer"><Icon size={14} /> {f.name || 'File'}</a>
+            {f.size ? <span className="muted">{fmtSize(f.size)}</span> : null}
+            {onRemove && <button type="button" className="btn btn-ghost btn-icon btn-sm" onClick={() => onRemove(i)} aria-label={`Remove ${f.name}`}><X size={13} /></button>}
+          </span>
+        )
+      })}
+    </div>
+  )
+}
+
+// "Attach files" button: uploads each chosen file at once and reports the list.
+export function FileAttach({ purpose, value = [], onChange, max = 5, accept = 'application/pdf,image/*', label = 'Attach PDF / photo' }) {
+  const input = useRef(null)
+  const [busy, setBusy] = useState(false)
+  const toast = useToast()
+  const pick = async (e) => {
+    const chosen = [...e.target.files].slice(0, Math.max(0, max - value.length))
+    e.target.value = ''
+    if (!chosen.length) return
+    setBusy(true)
+    const added = []
+    for (const file of chosen) {
+      try {
+        added.push(await uploadFile(file, purpose))
+      } catch (error) {
+        toast(error.message, 'error')
+      }
+    }
+    setBusy(false)
+    if (added.length) onChange([...value, ...added])
+  }
+  return (
+    <div className="stack" style={{ gap: 8 }}>
+      <Attachments files={value} onRemove={(i) => onChange(value.filter((_, x) => x !== i))} />
+      {value.length < max && (
+        <div>
+          <button type="button" className="btn btn-sm" onClick={() => input.current?.click()} disabled={busy}>
+            <Paperclip size={14} /> {busy ? 'Uploading…' : label}
+          </button>
+          <input ref={input} type="file" accept={accept} multiple hidden onChange={pick} />
+        </div>
+      )}
+    </div>
+  )
+}
 
 /* ── Data loading ── */
 
@@ -109,7 +220,13 @@ export function Modal({ title, onClose, children, footer, size }) {
   useEffect(() => {
     const onKey = (e) => e.key === 'Escape' && onClose()
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    // Keep the page behind from scrolling under the dialog on phones.
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      document.body.style.overflow = prev
+    }
   }, [onClose])
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>

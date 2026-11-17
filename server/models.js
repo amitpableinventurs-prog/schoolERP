@@ -5,7 +5,7 @@ const { Schema } = mongoose
 
 // Desktop sync: deletes of synced records are remembered as tombstones so the other
 // side (central server / desktop app) can replay them.
-const NOT_TRACKED = ['ActivityLog', 'AutomationRule', 'Outbox', 'AutomationLog', 'SyncTombstone', 'SyncState', 'VehicleLocation', 'VehiclePing']
+const NOT_TRACKED = ['ActivityLog', 'AutomationRule', 'Outbox', 'AutomationLog', 'SyncTombstone', 'SyncState', 'VehicleLocation', 'VehiclePing', 'StoredFile']
 
 async function recordDeletes(Model, ids) {
   if (!ids?.length) return
@@ -59,6 +59,10 @@ export const User = model('User', new Schema({
   createdBy: ref('User'),
   active: { type: Boolean, default: true },
   lastLoginAt: Date,
+  // Forgot password: hash of the emailed one-time token, or a request for the office.
+  resetTokenHash: String,
+  resetTokenExpires: Date,
+  resetRequestedAt: Date,
 }, opts))
 
 export const Setting = model('Setting', new Schema({
@@ -70,6 +74,10 @@ export const Setting = model('Setting', new Schema({
   academicYear: { type: String, default: '2026-27' },
   attendanceThreshold: { type: Number, default: 75 },
   passPercent: { type: Number, default: 35 },
+  logo: ref('StoredFile'), // printed on receipts, report cards and other documents
+  libraryLoanDays: { type: Number, default: 14 },
+  libraryFinePerDay: { type: Number, default: 2 },
+  libraryMaxBooks: { type: Number, default: 3 },
   migrations: [String], // one-time data migrations already applied
 }, opts))
 
@@ -110,7 +118,15 @@ export const Student = model('Student', new Schema({
   phone: String,
   email: { type: String, lowercase: true, trim: true },
   guardianName: String,
-  guardianPhone: String,
+  guardianPhone: String, // also the parent portal login
+  guardianRelation: String, // Father / Mother / Guardian…
+  guardianEmail: { type: String, lowercase: true, trim: true },
+  guardianOccupation: String,
+  fatherName: String,
+  motherName: String,
+  emergencyPhone: String,
+  bloodGroup: String,
+  photo: ref('StoredFile'),
   address: String,
   batch: { ...ref('Batch'), required: true },
   rollNo: Number,
@@ -334,6 +350,22 @@ export const AutomationLog = model('AutomationLog', new Schema({
   trigger: { type: String, enum: ['schedule', 'manual'], default: 'manual' },
 }, opts))
 
+/* ── Uploaded files (photos, homework PDFs, banners, logo) ── */
+
+// Kept in MongoDB (not on disk) so uploads survive redeploys of the web server.
+export const StoredFile = model('StoredFile', new Schema({
+  name: String,
+  mime: { type: String, required: true },
+  size: Number,
+  data: { type: Buffer, required: true },
+  purpose: { type: String, enum: ['photo', 'homework', 'assignment', 'banner', 'logo', 'other'], default: 'other' },
+  public: { type: Boolean, default: false }, // logo and banners: readable without the owner check
+  student: ref('Student'), // whose photo / homework it is
+  createdBy: ref('User'),
+}, opts).index({ createdBy: 1, createdAt: -1 }))
+
+const attachmentSchema = new Schema({ file: ref('StoredFile'), name: String, mime: String, size: Number }, { _id: false })
+
 /* ── LMS ── */
 
 const lessonSchema = new Schema({
@@ -372,6 +404,7 @@ export const Assignment = model('Assignment', new Schema({
   subject: String,
   course: ref('Course'),
   url: String, // question sheet / reference
+  attachments: [attachmentSchema], // question sheet uploaded as a file (PDF / photo)
   dueDate: { type: String, required: true },
   maxMarks: { type: Number, default: 10 },
   allowLate: { type: Boolean, default: true },
@@ -385,6 +418,7 @@ export const Submission = model('Submission', new Schema({
   student: { ...ref('Student'), required: true },
   text: String,
   link: String,
+  attachments: [attachmentSchema], // PDFs / photos of the work, uploaded in the portal
   submittedAt: Date,
   late: { type: Boolean, default: false },
   // returned = teacher asked for a resubmission
@@ -504,6 +538,89 @@ export const TransportInvoice = model('TransportInvoice', new Schema({
   collectedBy: ref('User'),
   note: String,
 }, opts).index({ student: 1, month: 1 }, { unique: true }).index({ route: 1, month: 1 }))
+
+// A student / parent asks for a seat on a route; staff approve it into an assignment.
+export const TransportRequest = model('TransportRequest', new Schema({
+  student: { ...ref('Student'), required: true },
+  route: { ...ref('TransportRoute'), required: true },
+  stop: { type: Schema.Types.ObjectId, required: true },
+  stopName: String,
+  pickup: { type: Boolean, default: true },
+  drop: { type: Boolean, default: true },
+  monthlyFee: Number, // the stop's fee when applied (shown to the parent)
+  startDate: { type: String, required: true },
+  note: String,
+  requestedBy: ref('User'),
+  requestedByName: String,
+  requestedByRole: String,
+  status: { type: String, enum: ['pending', 'approved', 'rejected', 'cancelled'], default: 'pending' },
+  reviewedBy: String,
+  reviewNote: String,
+  reviewedAt: Date,
+  assignment: ref('TransportAssignment'),
+}, opts).index({ student: 1, createdAt: -1 }).index({ status: 1 }))
+
+/* ── Academic calendar & home-screen banners ── */
+
+export const CALENDAR_TYPES = ['holiday', 'event', 'exam', 'ptm', 'activity', 'other']
+export const CalendarEvent = model('CalendarEvent', new Schema({
+  title: { type: String, required: true, trim: true },
+  type: { type: String, enum: CALENDAR_TYPES, default: 'event' },
+  start: { type: String, required: true }, // YYYY-MM-DD
+  end: String, // last day (inclusive); empty = one day
+  description: String,
+  audience: { type: String, enum: ['all', 'students', 'parents', 'staff'], default: 'all' },
+  wing: { type: String, enum: INSTITUTION_TYPES }, // empty (and no batch) = the whole institute
+  batch: ref('Batch'), // one batch only
+  createdBy: String,
+}, opts).index({ start: 1 }))
+
+export const Banner = model('Banner', new Schema({
+  title: { type: String, required: true, trim: true },
+  subtitle: String,
+  image: { ...ref('StoredFile'), required: true },
+  link: String, // a page of the portal (/my/fees) or a website
+  audience: { type: String, enum: ['all', 'students', 'parents', 'staff'], default: 'all' },
+  active: { type: Boolean, default: true },
+  order: { type: Number, default: 0 },
+  startDate: String,
+  endDate: String,
+  createdBy: String,
+}, opts))
+
+/* ── Library (books, issue / return, fines) ── */
+
+export const Book = model('Book', new Schema({
+  title: { type: String, required: true, trim: true },
+  author: { type: String, trim: true },
+  isbn: { type: String, trim: true },
+  accessionNo: { type: String, trim: true }, // library's own number
+  publisher: String,
+  category: String, // Fiction, Reference, Textbook…
+  subject: String,
+  language: String,
+  edition: String,
+  shelf: String, // rack / shelf location
+  copies: { type: Number, default: 1, min: 0 },
+  price: Number,
+  notes: String,
+}, opts).index({ title: 1 }))
+
+export const BookIssue = model('BookIssue', new Schema({
+  book: { ...ref('Book'), required: true },
+  memberType: { type: String, enum: ['student', 'staff'], default: 'student' },
+  student: ref('Student'),
+  staff: ref('Staff'),
+  issuedOn: { type: String, required: true },
+  dueOn: { type: String, required: true },
+  returnedOn: String,
+  status: { type: String, enum: ['issued', 'returned', 'lost'], default: 'issued' },
+  fine: { type: Number, default: 0 }, // fixed when the book is returned / marked lost
+  finePaid: { type: Boolean, default: false },
+  issuedBy: String,
+  returnedTo: String,
+  notes: String,
+}, opts).index({ status: 1, dueOn: 1 }).index({ student: 1, createdAt: -1 }).index({ book: 1, status: 1 }))
 
 /* ── Activity log (super admin monitoring) ── */
 

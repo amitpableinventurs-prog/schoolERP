@@ -8,7 +8,7 @@ export default function MyResults() {
   const state = useApi(`${api}/results`)
   return (
     <>
-      <PageHead title={my('results')} subtitle="Published exam results and report cards." />
+      <PageHead title={my('results')} subtitle="Academic record: published exam results and report cards." />
       <Async state={state}>{(rows) => rows.length ? (
         <div className="card">
           <div className="table-wrap">
@@ -18,10 +18,10 @@ export default function MyResults() {
                 <tr key={exam._id}>
                   <td className="cell-title">{exam.name}</td>
                   <td>{fmtDate(exam.date)}</td>
-                  <td className="small text-2">{mark.scores.map((s) => `${s.subject}: ${s.marks}`).join(' · ')}</td>
+                  <td className="small text-2">{(mark.scores || []).map((s) => `${s.subject}: ${s.absent ? 'AB' : s.marks ?? '—'}`).join(' · ')}</td>
                   <td className="num"><PctBadge value={mark.percent} warnBelow={50} badBelow={35} /></td>
                   <td>{mark.grade}</td>
-                  <td className="num">{mark.rank}</td>
+                  <td className="num">{mark.rank ?? '—'}</td>
                   <td><Link className="btn btn-sm" to={to(`results/${exam._id}`)}>Report card</Link></td>
                 </tr>
               ))}</tbody>

@@ -6,8 +6,12 @@ import { addDays, daysBetween, ymd } from './util.js'
 
 const oid = (id) => new mongoose.Types.ObjectId(String(id))
 
+// Settings saved before a field existed get its default (lean() skips schema defaults).
+const SETTING_DEFAULTS = { libraryLoanDays: 14, libraryFinePerDay: 2, libraryMaxBooks: 3 }
+
 export async function getSettings() {
-  return (await Setting.findOne().lean()) || (await Setting.create({})).toObject()
+  const doc = (await Setting.findOne().lean()) || (await Setting.create({})).toObject()
+  return { ...SETTING_DEFAULTS, ...doc }
 }
 
 export function installmentStatus(inst, today = ymd()) {

@@ -40,7 +40,7 @@ router.get('/admin/overview', asyncHandler(async (req, res) => {
 // Admins (and optionally all staff logins) with their recent activity.
 router.get('/admin/admins', asyncHandler(async (req, res) => {
   const roles = req.query.all === '1' ? ['superadmin', 'admin', 'teacher', 'accountant', 'counsellor'] : ['admin']
-  const users = await User.find({ role: { $in: roles } }, '-passwordHash').populate('createdBy', 'name').sort({ role: 1, name: 1 }).lean()
+  const users = await User.find({ role: { $in: roles } }, '-passwordHash -resetTokenHash -resetTokenExpires').populate('createdBy', 'name').sort({ role: 1, name: 1 }).lean()
   const since = sinceDays(7)
   const stats = await ActivityLog.aggregate([
     { $match: { user: { $in: users.map((u) => u._id) }, createdAt: { $gte: since } } },

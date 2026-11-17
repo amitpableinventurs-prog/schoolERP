@@ -1,28 +1,31 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
-  ArrowLeft, Award, Bell, BookOpen, Bot, Brain, Bus, CalendarCheck, CalendarDays, CalendarX2, ChevronDown, ChevronLeft, ClipboardCheck, ClipboardList, Gauge,
-  Cloud, CloudOff, GraduationCap, IndianRupee, KeyRound, RefreshCw, LayoutDashboard, LayoutGrid, LogOut, Menu, MonitorPlay, Moon, Plus, Search, Sun, Timer, Users2,
+  ArrowLeft, Award, Bell, BookOpen, Bot, Brain, Bus, CalendarCheck, CalendarDays, CalendarRange, CalendarX2, ChevronDown, ChevronLeft, ClipboardCheck, ClipboardList, Gauge,
+  Cloud, CloudOff, GraduationCap, IndianRupee, KeyRound, Library, ListChecks, RefreshCw, LayoutDashboard, LayoutGrid, LogOut, Menu, MonitorPlay, Moon, Plus, Search, Sun, UserRound, Users2,
 } from 'lucide-react'
 import { can, useAuth, WING_LABEL } from '../lib/auth.jsx'
 import { api } from '../lib/api.js'
-import { initials, timeAgo } from '../lib/format.js'
+import { timeAgo } from '../lib/format.js'
 import { flatLinks, menuFor, QUICK_ADD } from '../lib/modules.js'
 import { PORTALS, portalOfRole } from '../lib/portals.js'
 import { hasModule } from '../../shared/modules.js'
-import { Field, Loading, Modal, useAction, useApi } from './ui.jsx'
+import { Avatar, ErrorBoundary, Field, Loading, Modal, PasswordInput, useAction, useApi } from './ui.jsx'
 
 const PORTAL_MENU = [
   { title: 'My Campus', items: [
     { to: '/', label: 'Home', icon: LayoutDashboard, end: true },
+    { to: '/my/profile', label: 'My Profile', icon: UserRound },
     { to: '/my/attendance', label: 'Attendance', icon: ClipboardCheck, mod: 'academics' },
     { to: '/my/timetable', label: 'Timetable', icon: CalendarDays, mod: 'academics' },
+    { to: '/my/calendar', label: 'Calendar', icon: CalendarRange },
     { to: '/my/exams', label: 'Exams & Admit Card', icon: CalendarCheck, mod: 'academics' },
-    { to: '/my/results', label: 'Results', icon: GraduationCap, mod: 'academics' },
-    { to: '/my/tests', label: 'Online Tests', icon: Timer, mod: 'onlineExams' },
+    { to: '/my/results', label: 'Results & Report Cards', icon: GraduationCap, mod: 'academics' },
+    { to: '/my/tests', label: 'MCQ Tests', icon: ListChecks, mod: 'onlineExams' },
+    { to: '/my/assignments', label: 'Homework', icon: ClipboardList, mod: 'lms' },
     { to: '/my/courses', label: 'Courses', icon: MonitorPlay, mod: 'lms' },
-    { to: '/my/assignments', label: 'Assignments', icon: ClipboardList, mod: 'lms' },
     { to: '/my/materials', label: 'Study Material', icon: BookOpen, mod: 'academics' },
+    { to: '/my/library', label: 'Library', icon: Library, mod: 'academics' },
     { to: '/my/doubts', label: 'AI Tutor & Doubts', icon: Brain, ai: true, mod: 'academics' },
     { to: '/my/fees', label: 'Fees', icon: IndianRupee, mod: 'fees' },
     { to: '/my/notices', label: 'Notices', icon: Bell },
@@ -41,14 +44,17 @@ function parentMenu(user, childId) {
   const base = `/child/${child._id}`
   sections.push({ title: child.name.split(' ')[0], items: [
     { to: base, label: 'Overview', icon: LayoutDashboard, end: true },
+    { to: `${base}/profile`, label: 'Profile & Guardian Info', icon: UserRound },
     { to: `${base}/attendance`, label: 'Attendance', icon: ClipboardCheck, mod: 'academics' },
     { to: `${base}/timetable`, label: 'Timetable', icon: CalendarDays, mod: 'academics' },
+    { to: `${base}/calendar`, label: 'Calendar', icon: CalendarRange },
     { to: `${base}/exams`, label: 'Exams & Admit Card', icon: CalendarCheck, mod: 'academics' },
-    { to: `${base}/results`, label: 'Results', icon: GraduationCap, mod: 'academics' },
-    { to: `${base}/tests`, label: 'Online Tests', icon: Timer, mod: 'onlineExams' },
-    { to: `${base}/courses`, label: 'Courses', icon: MonitorPlay, mod: 'lms' },
+    { to: `${base}/results`, label: 'Results & Report Cards', icon: GraduationCap, mod: 'academics' },
+    { to: `${base}/tests`, label: 'MCQ Tests', icon: ListChecks, mod: 'onlineExams' },
     { to: `${base}/assignments`, label: 'Homework', icon: ClipboardList, mod: 'lms' },
+    { to: `${base}/courses`, label: 'Courses', icon: MonitorPlay, mod: 'lms' },
     { to: `${base}/materials`, label: 'Study Material', icon: BookOpen, mod: 'academics' },
+    { to: `${base}/library`, label: 'Library', icon: Library, mod: 'academics' },
     { to: `${base}/fees`, label: 'Fees', icon: IndianRupee, mod: 'fees' },
     { to: `${base}/notices`, label: 'Notices', icon: Bell },
     { to: `${base}/leaves`, label: 'Leave', icon: CalendarX2, mod: 'academics' },
@@ -159,20 +165,27 @@ function SyncBadge() {
   )
 }
 
-function PasswordModal({ onClose }) {
-  const [form, setForm] = useState({ current: '', next: '' })
+export function PasswordModal({ onClose }) {
+  const [form, setForm] = useState({ current: '', next: '', confirm: '' })
+  const [error, setError] = useState('')
   const [run, busy] = useAction()
+  const set = (k) => (e) => { setError(''); setForm({ ...form, [k]: e.target.value }) }
   const submit = async (e) => {
     e.preventDefault()
-    const ok = await run(() => api.post('/auth/password', form), 'Password changed.')
+    if (form.next.length < 6) return setError('The new password must be at least 6 characters.')
+    if (form.next !== form.confirm) return setError('The two new passwords do not match.')
+    if (form.next === form.current) return setError('The new password must be different from the current one.')
+    const ok = await run(() => api.post('/auth/password', { current: form.current, next: form.next }), 'Password changed. Use the new password next time you sign in.')
     if (ok) onClose()
   }
   return (
-    <Modal title="Change password" onClose={onClose}>
-      <form className="stack" onSubmit={submit}>
-        <Field label="Current password"><input className="input" type="password" value={form.current} onChange={(e) => setForm({ ...form, current: e.target.value })} required /></Field>
-        <Field label="New password" hint="At least 6 characters"><input className="input" type="password" value={form.next} onChange={(e) => setForm({ ...form, next: e.target.value })} minLength={6} required /></Field>
-        <div className="row" style={{ justifyContent: 'flex-end' }}><button className="btn btn-primary" disabled={busy}>Save</button></div>
+    <Modal title="Change password" onClose={onClose} footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn btn-primary" form="pw-form" disabled={busy}>{busy ? 'Saving…' : 'Save password'}</button></>}>
+      <form id="pw-form" className="stack" onSubmit={submit}>
+        {error && <div className="alert alert-error small">{error}</div>}
+        <Field label="Current password"><PasswordInput value={form.current} onChange={set('current')} autoComplete="current-password" required /></Field>
+        <Field label="New password" hint="At least 6 characters"><PasswordInput value={form.next} onChange={set('next')} minLength={6} required /></Field>
+        <Field label="Confirm new password"><PasswordInput value={form.confirm} onChange={set('confirm')} minLength={6} required /></Field>
+        <p className="small muted">Forgot your current password? Sign out and use “Forgot password?” on the sign-in page.</p>
       </form>
     </Modal>
   )
@@ -258,16 +271,27 @@ export default function Layout() {
   const [menuQ, setMenuQ] = useState('')
   const [isDark, toggleTheme] = useTheme()
 
-  const { pathname } = useLocation()
+  const location = useLocation()
+  const { pathname } = location
   const isStaff = !['student', 'parent'].includes(user.role)
   const childId = user.role === 'parent' ? pathname.match(/^\/child\/([^/]+)/)?.[1] : null
   const pendingLeaves = useApi('/leaves/pending-count', { skip: !can(user, 'leaves') })
-  const counts = { leaves: pendingLeaves.data?.count }
+  const resetRequests = useApi('/reset-requests/count', { skip: !can(user, 'resetRequests') })
+  const transportRequests = useApi('/transport/requests/pending-count', { skip: !can(user, 'transport') })
+  const counts = { leaves: pendingLeaves.data?.count, resets: resetRequests.data?.count, transportRequests: transportRequests.data?.count }
   const reloadLeaves = pendingLeaves.reload
+  const reloadResets = resetRequests.reload
+  const reloadTransport = transportRequests.reload
   useEffect(() => {
     window.addEventListener('leaves-changed', reloadLeaves)
-    return () => window.removeEventListener('leaves-changed', reloadLeaves)
-  }, [reloadLeaves])
+    window.addEventListener('resets-changed', reloadResets)
+    window.addEventListener('transport-requests-changed', reloadTransport)
+    return () => {
+      window.removeEventListener('leaves-changed', reloadLeaves)
+      window.removeEventListener('resets-changed', reloadResets)
+      window.removeEventListener('transport-requests-changed', reloadTransport)
+    }
+  }, [reloadLeaves, reloadResets, reloadTransport])
 
   const menu = useMemo(() => {
     if (user.role !== 'student' && user.role !== 'parent') return menuFor(user)
@@ -294,7 +318,15 @@ export default function Layout() {
   const portal = PORTALS[portalOfRole(user.role)]
   const alerts = [
     counts.leaves > 0 && { to: '/leaves', icon: CalendarX2, text: `${counts.leaves} leave request${counts.leaves > 1 ? 's' : ''} waiting for approval` },
+    counts.resets > 0 && { to: '/reset-requests', icon: KeyRound, text: `${counts.resets} forgotten password${counts.resets > 1 ? 's' : ''} to reset` },
+    counts.transportRequests > 0 && { to: '/transport/assignments?tab=requests', icon: Bus, text: `${counts.transportRequests} transport application${counts.transportRequests > 1 ? 's' : ''} waiting` },
   ].filter(Boolean)
+  const alertTotal = (counts.leaves || 0) + (counts.resets || 0) + (counts.transportRequests || 0)
+  const profileLink = user.role === 'student' ? '/my/profile' : user.role === 'parent' ? (childId || user.children?.[0]?._id ? `/child/${childId || user.children[0]._id}/profile` : null) : null
+  const avatarPhoto = user.role === 'student' ? user.photo : user.role === 'parent' ? user.children?.find((c) => c._id === childId)?.photo : null
+  // Opened straight from a link (no page to go back to): back goes home instead of
+  // leaving the site, which on a phone app looks like the app closing.
+  const goBack = () => navigate(location.key === 'default' || window.history.length <= 1 ? '/' : -1)
 
   return (
     <div className={`app ${collapsed ? 'collapsed' : ''}`} data-portal={portal.key}>
@@ -331,7 +363,7 @@ export default function Layout() {
       <div className="main">
         <header className="topbar">
           <button className="btn btn-ghost btn-icon" onClick={toggleMenu} aria-label="Toggle menu"><Menu size={20} /></button>
-          {pathname !== '/' && <button className="btn btn-ghost btn-icon" onClick={() => navigate(location.key === 'default' ? '/' : -1)} aria-label="Go back" title="Go back"><ArrowLeft size={19} /></button>}
+          {pathname !== '/' && <button className="btn btn-ghost btn-icon" onClick={goBack} aria-label="Go back" title="Go back"><ArrowLeft size={19} /></button>}
           <div className="topbar-title hide-sm">{instituteName}</div>
           <span className="portal-pill hide-md">{portal.name}</span>
           {isStaff && (
@@ -357,7 +389,7 @@ export default function Layout() {
           {isStaff && (
             <Dropdown width={300} button={(toggle, open) => (
               <button className="btn btn-ghost bell-btn" onClick={toggle} aria-label="Notifications" aria-expanded={open}>
-                <Bell size={19} />{alerts.length > 0 && <span className="bell-count">{counts.leaves}</span>}
+                <Bell size={19} />{alertTotal > 0 && <span className="bell-count">{alertTotal}</span>}
               </button>
             )}>
               {(close) => (
@@ -375,14 +407,15 @@ export default function Layout() {
           <button className="btn btn-ghost btn-icon" onClick={toggleTheme} aria-label="Toggle dark mode" title="Toggle dark mode">{isDark ? <Sun size={19} /> : <Moon size={19} />}</button>
           {isStaff && <Link className="btn btn-ghost btn-icon hide-sm" to="/#hub" aria-label="All modules" title="All modules"><LayoutGrid size={19} /></Link>}
           <Dropdown button={(toggle, open) => (
-            <button className="avatar-btn" onClick={toggle} aria-label="Account menu" aria-expanded={open}><span className="avatar">{initials(user.name)}</span></button>
+            <button className="avatar-btn" onClick={toggle} aria-label="Account menu" aria-expanded={open}><Avatar name={user.name} photo={avatarPhoto} /></button>
           )}>
             {(close) => (
               <>
                 <div className="dd-user">
                   <div style={{ fontWeight: 650 }}>{user.name}</div>
-                  <div className="small muted">{ROLE_LABEL[user.role]}</div>
+                  <div className="small muted">{ROLE_LABEL[user.role]} · <span className="mono">{user.loginId}</span></div>
                 </div>
+                {profileLink && <button onClick={() => { close(); navigate(profileLink) }}><UserRound size={16} /> {user.role === 'parent' ? 'Profile & guardian info' : 'My profile'}</button>}
                 <button onClick={() => { close(); setPwd(true) }}><KeyRound size={16} /> Change password</button>
                 <button onClick={logout} className="danger"><LogOut size={16} /> Log out</button>
               </>
@@ -390,9 +423,11 @@ export default function Layout() {
           </Dropdown>
         </header>
         <main className="content">
-          <Suspense fallback={<Loading />}>
-            <Outlet />
-          </Suspense>
+          <ErrorBoundary key={pathname}>
+            <Suspense fallback={<Loading />}>
+              <Outlet />
+            </Suspense>
+          </ErrorBoundary>
         </main>
       </div>
       {isStaff && can(user, 'assistant') && pathname !== '/assistant' && (

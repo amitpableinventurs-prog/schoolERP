@@ -67,6 +67,10 @@ const Staff = {
   MyPayslip: page(() => import('./pages/staff/PayslipPage.jsx').then((m) => ({ default: m.MyPayslip }))),
   Finance: page(() => import('./pages/staff/FinanceOverview.jsx')),
   Ledger: page(() => import('./pages/staff/FinanceLedger.jsx')),
+  Calendar: page(() => import('./pages/staff/CalendarPage.jsx')),
+  Banners: page(() => import('./pages/staff/Banners.jsx')),
+  Library: page(() => import('./pages/staff/LibraryPage.jsx')),
+  ResetRequests: page(() => import('./pages/staff/ResetRequests.jsx')),
 }
 const Portal = {
   Home: page(() => import('./pages/portal/Home.jsx')),
@@ -91,8 +95,12 @@ const Portal = {
   Transport: page(() => import('./pages/portal/MyTransport.jsx')),
   Certificates: page(() => import('./pages/portal/MyCertificates.jsx')),
   Certificate: page(() => import('./pages/portal/MyCertificates.jsx').then((m) => ({ default: m.MyCertificate }))),
+  Profile: page(() => import('./pages/portal/MyProfile.jsx')),
+  Calendar: page(() => import('./pages/portal/MyCalendar.jsx')),
+  Library: page(() => import('./pages/portal/MyLibrary.jsx')),
 }
 const Verify = page(() => import('./pages/Verify.jsx'))
+const ResetPassword = page(() => import('./pages/ResetPassword.jsx'))
 const DriverTrack = page(() => import('./pages/DriverTrack.jsx'))
 const OwnerApp = page(() => import('./pages/owner/Owner.jsx'))
 const Parent = {
@@ -172,6 +180,10 @@ function StaffRoutes() {
         <Route path="payslips/:id" element={g('myPayslips', <S.MyPayslip />)} />
         <Route path="finance" element={g('finance', <S.Finance />)} />
         <Route path="finance/ledger" element={g('finance', <S.Ledger />)} />
+        <Route path="calendar" element={g('calendar', <S.Calendar />)} />
+        <Route path="banners" element={g('notices', <S.Banners />)} />
+        <Route path="library" element={g('library', <S.Library />)} />
+        <Route path="reset-requests" element={g('resetRequests', <S.ResetRequests />)} />
         <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>
@@ -205,6 +217,9 @@ function PortalRoutes() {
         <Route path="my/transport" element={<P.Transport />} />
         <Route path="my/certificates" element={<P.Certificates />} />
         <Route path="my/certificates/:id" element={<P.Certificate />} />
+        <Route path="my/profile" element={<P.Profile />} />
+        <Route path="my/calendar" element={<P.Calendar />} />
+        <Route path="my/library" element={<P.Library />} />
         <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>
@@ -241,6 +256,9 @@ function ParentRoutes() {
           <Route path="transport" element={<P.Transport />} />
           <Route path="certificates" element={<P.Certificates />} />
           <Route path="certificates/:id" element={<P.Certificate />} />
+          <Route path="profile" element={<P.Profile />} />
+          <Route path="calendar" element={<P.Calendar />} />
+          <Route path="library" element={<P.Library />} />
         </Route>
         <Route path="*" element={<NotFound />} />
       </Route>
@@ -289,6 +307,14 @@ export default function App() {
   const portal = user && portalOfRole(user.role)
   useEffect(() => { if (portal) rememberPortal(portal) }, [portal])
 
+  // The link from a password-reset email works signed in or not.
+  if (pathname === '/reset-password') {
+    return (
+      <Suspense fallback={<Loading />}>
+        <ResetPassword />
+      </Suspense>
+    )
+  }
   // Certificate verification is public, signed in or not.
   if (pathname.startsWith('/verify')) {
     return (

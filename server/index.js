@@ -20,6 +20,9 @@ import transportRoutes from './routes/transport.js'
 import payrollRoutes from './routes/payroll.js'
 import financeRoutes from './routes/finance.js'
 import certificateRoutes, { verifyCertificate } from './routes/certificates.js'
+import fileRoutes from './routes/files.js'
+import campusRoutes from './routes/campus.js'
+import libraryRoutes from './routes/library.js'
 import { gpsPublic, gpsStaff } from './routes/gps.js'
 import { activityLogger } from './activity.js'
 import { ensureIndexes, runWithTenant } from './tenancy.js'
@@ -38,11 +41,42 @@ const app = express()
 // Only trust X-Forwarded-For from a proxy on this machine (Vite in dev, nginx/Apache in production).
 app.set('trust proxy', 'loopback')
 app.disable('x-powered-by')
+// Old / beta addresses forward to the live site, so links in old emails and
+// bookmarks never open an outdated copy (REDIRECT_HOSTS + APP_URL in .env).
+if (config.redirectHosts.length && config.appUrl) {
+  app.use((req, res, next) => {
+    if (!config.redirectHosts.includes(req.hostname.toLowerCase())) return next()
+    res.redirect(req.method === 'GET' || req.method === 'HEAD' ? 301 : 308, `${config.appUrl}${req.originalUrl}`)
+  })
+}
 app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }))
 app.use(compression())
+// Other web origins explicitly allowed to use the API with the login cookie (CORS_ORIGINS).
+if (config.corsOrigins.length) {
+  const allowed = new Set(config.corsOrigins)
+  app.use('/api', (req, res, next) => {
+    const origin = req.get('origin')
+    if (origin && allowed.has(origin)) {
+      res.set({ 'Access-Control-Allow-Origin': origin, 'Access-Control-Allow-Credentials': 'true', Vary: 'Origin' })
+      if (req.method === 'OPTIONS') {
+        res.set({ 'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type', 'Access-Control-Max-Age': '600' })
+        return res.sendStatus(204)
+      }
+    }
+    next()
+  })
+}
+// API answers are live data: never let a browser, app WebView or the hosting's
+// cache (LiteSpeed) serve an old copy (notices / calendar "not updating").
+app.use('/api', (req, res, next) => {
+  res.set('Cache-Control', 'no-store')
+  next()
+})
 // Desktop apps sync through here (own body parser; the licence picks the institute).
 if (!desktop) app.use('/api/sync', syncRoutes)
-app.use(express.json({ limit: '2mb' }))
+// File uploads have their own, larger body limit (see routes/files.js).
+const smallJson = express.json({ limit: '2mb' })
+app.use((req, res, next) => (req.path.startsWith('/api/files') ? next() : smallJson(req, res, next)))
 app.use(cookieParser())
 if (desktop) {
   app.use('/api/desktop', desktopRoutes)
@@ -70,6 +104,8 @@ app.get('/api/verify/:serial', (req, res, next) => {
 // Bus positions from drivers' phones and GPS trackers (no login; the tracking token identifies the bus).
 if (!desktop) app.use('/api/gps', gpsPublic)
 
+// Uploaded files: public ones (logo, banners) without login, the rest checked per file.
+app.use('/api/files', fileRoutes)
 app.use('/api', coreRoutes)
 app.use('/api/portal', requireAuth, portalRoutes)
 app.use('/api/parent', requireAuth, parentRoutes)
@@ -85,6 +121,8 @@ if (!desktop) app.use('/api', requireAuth, gpsStaff)
 app.use('/api', requireAuth, payrollRoutes)
 app.use('/api', requireAuth, financeRoutes)
 app.use('/api', requireAuth, certificateRoutes)
+app.use('/api', requireAuth, campusRoutes)
+app.use('/api', requireAuth, libraryRoutes)
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found.' }))
 
 // In production this server also serves the built React app.
@@ -96,6 +134,7 @@ if (config.isProduction) {
 
 // eslint-disable-next-line no-unused-vars
 app.use((error, req, res, next) => {
+  if (error.type === 'entity.too.large') return res.status(413).json({ error: 'The file or form is too big to upload.' })
   if (error.name === 'ValidationError') {
     return res.status(422).json({ error: Object.values(error.errors).map((e) => e.message).join(' ') })
   }

@@ -69,6 +69,9 @@ export const ACCESS = {
   payroll: ['accountant'],
   finance: ['accountant'],
   myPayslips: ['teacher', 'accountant', 'counsellor'],
+  calendar: ['teacher', 'accountant', 'counsellor'],
+  library: ['teacher'],
+  resetRequests: ['teacher'],
   // Super admin only:
   admins: [],
   activity: [],

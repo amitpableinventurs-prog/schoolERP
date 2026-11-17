@@ -1,14 +1,18 @@
 import { X } from 'lucide-react'
 import { DAYS } from '../lib/format.js'
 
-export default function TimetableGrid({ slots, onDelete, showBatch }) {
+// Week of periods. On a phone the days stack one under another; `todayFirst`
+// starts the list with today (student / parent view).
+export default function TimetableGrid({ slots, onDelete, showBatch, todayFirst }) {
   const today = ((new Date().getDay() + 6) % 7) + 1
+  const days = [1, 2, 3, 4, 5, 6, 7].filter((d) => d <= 6 || slots.some((s) => s.day === d))
+  const order = todayFirst && days.includes(today) ? [...days.filter((d) => d >= today), ...days.filter((d) => d < today)] : days
   return (
-    <div className="tt">
-      {[1, 2, 3, 4, 5, 6].map((day) => {
-        const list = slots.filter((s) => s.day === day)
+    <div className={`tt${todayFirst ? ' tt-today-first' : ''}`} style={{ '--tt-days': days.length }}>
+      {order.map((day) => {
+        const list = slots.filter((s) => s.day === day).sort((a, b) => a.start.localeCompare(b.start))
         return (
-          <div className="tt-day" key={day}>
+          <div className={`tt-day${day === today ? ' is-today' : ''}`} key={day} style={{ order: day }}>
             <h3 style={day === today ? { color: 'var(--accent-strong)' } : undefined}>{DAYS[day]}{day === today && ' · today'}</h3>
             {list.length ? list.map((s) => (
               <div className="tt-slot" key={s._id}>

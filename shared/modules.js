@@ -2,7 +2,7 @@
 // (menus, route guards). Everything not listed here is the always-on core:
 // dashboard, students, classes, staff, notices, settings, admins and the activity log.
 export const PLATFORM_MODULES = [
-  { key: 'academics', label: 'Academics', desc: 'Attendance, timetable, examinations (date sheet, marks, grades, report & admit cards), study material, doubts, leaves' },
+  { key: 'academics', label: 'Academics', desc: 'Attendance, timetable, examinations (date sheet, marks, grades, report & admit cards), study material, library, doubts, leaves' },
   { key: 'onlineExams', label: 'Online Exams', desc: 'Online tests and question papers' },
   { key: 'lms', label: 'LMS', desc: 'Video courses and assignments' },
   { key: 'fees', label: 'Fees & Collection', desc: 'Fee plans, installments, receipts' },
@@ -19,7 +19,7 @@ export const moduleLabel = (key) => PLATFORM_MODULES.find((m) => m.key === key)?
 
 // ACCESS section (src/lib/auth.jsx) → module. Sections not listed are core.
 export const SECTION_MODULE = {
-  attendance: 'academics', timetable: 'academics', exams: 'academics', materials: 'academics', doubts: 'academics', leaves: 'academics',
+  attendance: 'academics', timetable: 'academics', exams: 'academics', materials: 'academics', doubts: 'academics', leaves: 'academics', library: 'academics',
   tests: 'onlineExams', papers: 'onlineExams',
   lms: 'lms', assignments: 'lms',
   fees: 'fees',
@@ -34,7 +34,7 @@ export const SECTION_MODULE = {
 
 // First path segment of an API call (after /api, /api/portal or /api/parent/children/:id) → module.
 const API_MODULE = {
-  attendance: 'academics', timetable: 'academics', exams: 'academics', results: 'academics', 'admit-cards': 'academics', materials: 'academics', doubts: 'academics', leaves: 'academics',
+  attendance: 'academics', timetable: 'academics', exams: 'academics', results: 'academics', 'admit-cards': 'academics', materials: 'academics', doubts: 'academics', leaves: 'academics', library: 'academics',
   tests: 'onlineExams', papers: 'onlineExams',
   courses: 'lms', assignments: 'lms',
   fees: 'fees',
@@ -46,7 +46,7 @@ const API_MODULE = {
   automation: 'automation', outbox: 'automation',
   ai: 'ai',
 }
-const AI_PATHS = [/^\/notices\/ai-draft/, /^\/papers\/generate/, /^\/tests\/ai-generate/]
+const AI_PATHS = [/^\/notices\/ai-draft/, /^\/papers\/generate/, /^\/tests\/ai-generate/, /^\/practice/]
 
 // Module an API path (without the /api prefix) belongs to, or null for core.
 export function moduleForApiPath(path) {
@@ -60,15 +60,16 @@ export const hasModule = (modules, key) => !key || !modules || modules.includes(
 
 // Collections a desktop installation keeps a local copy of, per module.
 export const MODULE_COLLECTIONS = {
-  core: ['User', 'Setting', 'Staff', 'Batch', 'Student', 'Notice'],
-  academics: ['Attendance', 'GradeScale', 'Exam', 'Mark', 'TimetableSlot', 'Material', 'Doubt', 'LeaveRequest'],
+  // Uploaded files (StoredFile) stay on the central server and are not copied to desktops.
+  core: ['User', 'Setting', 'Staff', 'Batch', 'Student', 'Notice', 'CalendarEvent', 'Banner'],
+  academics: ['Attendance', 'GradeScale', 'Exam', 'Mark', 'TimetableSlot', 'Material', 'Doubt', 'LeaveRequest', 'Book', 'BookIssue'],
   onlineExams: ['Test', 'Attempt', 'Paper'],
   lms: ['Course', 'CourseProgress', 'Assignment', 'Submission'],
   fees: ['FeeInstallment', 'Payment'],
   // The finance overview also reads fees, payroll and transport invoices.
   finance: ['FinanceEntry', 'FeeInstallment', 'Payment', 'Payslip', 'SalaryAdvance', 'TransportInvoice'],
   payroll: ['SalaryStructure', 'Payslip', 'SalaryAdvance'],
-  transport: ['Vehicle', 'TransportRoute', 'TransportAssignment', 'TransportAttendance', 'TransportInvoice'],
+  transport: ['Vehicle', 'TransportRoute', 'TransportAssignment', 'TransportAttendance', 'TransportInvoice', 'TransportRequest'],
   certificates: ['CertificateTemplate', 'Certificate'],
   crm: ['Lead'],
   automation: [],

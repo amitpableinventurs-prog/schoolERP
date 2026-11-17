@@ -4,7 +4,7 @@ import { Clock, Send } from 'lucide-react'
 import { api } from '../../lib/api.js'
 import { Confirm, ErrorBox, Loading, useToast } from '../../components/ui.jsx'
 
-const LETTERS = ['A', 'B', 'C', 'D']
+const LETTERS = ['A', 'B', 'C', 'D', 'E', 'F']
 
 export default function TakeTest() {
   const { id } = useParams()

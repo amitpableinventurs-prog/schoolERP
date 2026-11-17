@@ -7,7 +7,7 @@ import { bindTenant } from './tenancy.js'
 const VERB = { POST: 'create', PUT: 'update', PATCH: 'update', DELETE: 'delete' }
 
 // Read-only AI helpers and chat are not changes; skip them to keep the log useful.
-const SKIP = [/^\/certificates\/preview$/, /^\/ai\/chat$/, /^\/ai\/risk-plan\//, /^\/notices\/ai-draft$/, /^\/tests\/ai-generate$/, /^\/leads\/[^/]+\/ai-message$/, /^\/auth\/login$/]
+const SKIP = [/^\/certificates\/preview$/, /^\/ai\/chat$/, /^\/ai\/risk-plan\//, /^\/notices\/ai-draft$/, /^\/tests\/ai-generate$/, /^\/leads\/[^/]+\/ai-message$/, /^\/auth\/login$/, /^\/files$/]
 const UPDATES = [/^\/payroll\/(approve|unapprove|pay)$/,/^\/certificates\/[^/]+\/(revoke|share)$/, /^\/students\/[^/]+\/(reset-password|parent-login)$/, /^\/leads\/[^/]+\/(followups|convert)$/, /^\/outbox\/bulk$/, /^\/automation\/rules\/[^/]+\/run$/, /^\/automation\/run-all$/, /^\/auth\/password$/, /^\/desktop-apps\/[^/]+\/(reset-device|renew)$/]
 const AI = [/^\/papers\/generate$/, /^\/exams\/[^/]+\/ai-remarks$/, /^\/doubts\/[^/]+\/ai-answer$/]
 
@@ -17,13 +17,14 @@ const MODULE = {
   materials: 'Study material', doubts: 'Doubts', notices: 'Notices', fees: 'Fees', leads: 'Admissions CRM',
   automation: 'Automation', outbox: 'Outbox', courses: 'LMS courses', assignments: 'Assignments', leaves: 'Leave requests',
   certificates: 'Certificates', transport: 'Transport', payroll: 'Payroll', finance: 'Finance',
-  'desktop-apps': 'Desktop apps',
+  'desktop-apps': 'Desktop apps', calendar: 'Calendar', banners: 'Banners', library: 'Library', 'reset-requests': 'Password requests',
 }
 
 const NOUN = {
   students: 'student', staff: 'staff member', batches: 'batch', users: 'login', exams: 'exam', tests: 'online test',
   papers: 'question paper', timetable: 'timetable slot', materials: 'study material', doubts: 'doubt', notices: 'notice',
   leads: 'enquiry', courses: 'course', assignments: 'assignment', leaves: 'leave request', certificates: 'certificate',
+  calendar: 'calendar event', banners: 'banner',
 }
 
 const money = (n) => `₹${Math.round(Number(n) || 0).toLocaleString('en-IN')}`
@@ -83,6 +84,11 @@ function describe(req, body, parts) {
   if (mod === 'certificates' && sub === 'share') return `${b.shared ? 'Shared' : 'Hid'} certificate ${body?.serialNo || ''} ${b.shared ? 'with' : 'from'} the student portal`
   if (mod === 'certificates' && id === 'templates') return `${{ POST: 'Created', PUT: 'Updated', DELETE: 'Deleted' }[m]} certificate template${name ? ` "${name}"` : ''}`
   if (mod === 'settings') return 'Changed institute settings'
+  if (mod === 'reset-requests') return sub === 'reset' ? `Reset forgotten password of ${body?.loginId || 'a user'}` : 'Dismissed a password request'
+  if (mod === 'library' && id === 'issues' && m === 'POST' && !sub) return `Issued library book "${body?.book?.title || ''}"`
+  if (mod === 'library' && sub === 'return') return `Took back library book${body?.fine ? ` — fine ${money(body.fine)}` : ''}`
+  if (mod === 'library' && id === 'books') return `${{ POST: 'Added', PUT: 'Updated', DELETE: 'Removed' }[m]} library book${name ? ` "${name}"` : ''}`
+  if (mod === 'transport' && id === 'requests') return `${b.status === 'approved' ? 'Approved' : 'Rejected'} a transport request`
   const noun = NOUN[mod] || mod
   const verb = { POST: 'Created', PUT: 'Updated', PATCH: 'Updated', DELETE: 'Deleted' }[m] || m
   return `${verb} ${noun}${name ? ` "${String(name).slice(0, 80)}"` : ''}`

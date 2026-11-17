@@ -12,7 +12,7 @@ export default function MyReportCard() {
   return (
     <>
       <PrintBar back={<Link to={to('results')} className="btn btn-ghost btn-sm"><ArrowLeft size={15} /> Results</Link>} />
-      <Async state={state}>{(d) => <ReportCardDoc data={d} />}</Async>
+      <Async state={state}>{(d) => <div className="doc-scroll"><ReportCardDoc data={d} /></div>}</Async>
     </>
   )
 }

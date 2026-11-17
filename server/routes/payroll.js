@@ -405,10 +405,23 @@ router.delete('/payroll/advances/:id', payroll, asyncHandler(async (req, res) =>
   const advance = await SalaryAdvance.findOne({ _id: req.params.id, ...(await wingsListFilter(req)) })
   if (!advance) throw httpError(404, 'Advance not found.')
   if (advance.recovered > 0) throw httpError(422, 'Part of this advance is already recovered. Close it instead.')
-  const pending = await Payslip.countDocuments({ 'advanceRecovery.advance': advance._id, status: { $ne: 'paid' } })
-  if (pending) throw httpError(422, 'A draft or approved payslip recovers this advance. Recalculate or delete that payslip first.')
+  const approved = await Payslip.countDocuments({ 'advanceRecovery.advance': advance._id, status: 'approved' })
+  if (approved) throw httpError(422, 'An approved payslip recovers this advance. Move that payslip back to draft first.')
   await advance.deleteOne()
-  res.json({ ok: true })
+  // Draft payslips that were going to recover it are recalculated without it.
+  const drafts = await Payslip.find({ 'advanceRecovery.advance': advance._id, status: 'draft' })
+  for (const slip of drafts) {
+    Object.assign(slip, computeSlip({
+      structure: slip.structure,
+      workingDays: slip.workingDays,
+      paidDays: slip.paidDays,
+      additions: slip.additions,
+      extraDeductions: slip.extraDeductions,
+      advanceRecovery: await recoveryFor(slip.staff),
+    }))
+    await slip.save()
+  }
+  res.json({ ok: true, recalculated: drafts.length })
 }))
 
 /* ── A staff member's own payslips ── */

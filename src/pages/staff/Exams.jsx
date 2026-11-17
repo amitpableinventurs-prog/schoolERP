@@ -132,12 +132,15 @@ export default function Exams() {
                     <td><Link to={`/exams/${e._id}`} className="cell-title">{e.name}</Link><div className="cell-sub" style={{ textTransform: 'capitalize' }}>{[e.type, e.term].filter(Boolean).join(' · ')}</div></td>
                     <td>{e.batch?.name}</td>
                     <td className="nowrap">{fmtDate(e.date)}</td>
-                    <td className="small text-2">{e.subjects.map((s) => `${s.name} (${s.maxMarks})`).join(', ')}{!scheduled(e) && <div><Badge tone="warn">Date sheet incomplete</Badge></div>}</td>
+                    <td className="small text-2">{e.subjects.map((s) => `${s.name} (${s.maxMarks})`).join(', ')}{!e.published && !scheduled(e) && <div><Badge tone="warn">Date sheet incomplete</Badge></div>}</td>
                     <td className="num">{e.entries}</td>
                     <td className="num"><PctBadge value={e.average} warnBelow={50} badBelow={35} /></td>
-                    <td className="stack" style={{ gap: 4 }}>
-                      {e.published ? <Badge tone="good">Result published</Badge> : <Badge>Result draft</Badge>}
-                      {e.admitCards && <Badge tone="info">Admit cards out</Badge>}
+                    <td>
+                      {/* Flex goes on an inner div: display:flex on the <td> itself breaks the table row. */}
+                      <div className="stack" style={{ gap: 4, alignItems: 'flex-start' }}>
+                        {e.published ? <Badge tone="good">Result published</Badge> : <Badge>Result draft</Badge>}
+                        {e.admitCards && <Badge tone="info">Admit cards out</Badge>}
+                      </div>
                     </td>
                     <td className="nowrap">
                       <Link className="btn btn-sm" to={`/exams/${e._id}`}>Marks</Link>

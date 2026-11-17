@@ -154,6 +154,12 @@ router.put('/exams/:id/marks', teacher, asyncHandler(async (req, res) => {
       .map((s) => (s.absent || String(s.marks).toUpperCase() === 'AB'
         ? { subject: s.subject, absent: true }
         : { subject: s.subject, marks: Math.max(0, Math.min(maxBy[s.subject], Number(s.marks) || 0)) }))
+    // A student with no marks and no remark has no entry (saving the sheet must not
+    // create blank entries for everyone; clearing a row removes its entry).
+    if (!scores.length && row.remark !== undefined && !String(row.remark).trim()) {
+      ops.push({ deleteOne: { filter: { exam: exam._id, student: row.student } } })
+      continue
+    }
     const update = { scores }
     if (row.remark !== undefined) update.remark = row.remark
     ops.push({ updateOne: { filter: { exam: exam._id, student: row.student }, update: { $set: update }, upsert: true } })
